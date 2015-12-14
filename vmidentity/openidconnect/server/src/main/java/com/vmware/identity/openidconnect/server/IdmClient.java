@@ -18,19 +18,18 @@ import java.security.PrivateKey;
 import java.security.cert.Certificate;
 import java.security.cert.X509Certificate;
 import java.util.Collection;
-import java.util.EnumSet;
 import java.util.List;
 
 import org.apache.commons.lang3.Validate;
 
 import com.vmware.identity.idm.Attribute;
 import com.vmware.identity.idm.AttributeValuePair;
-import com.vmware.identity.idm.DomainType;
+import com.vmware.identity.idm.AuthnPolicy;
 import com.vmware.identity.idm.GSSResult;
-import com.vmware.identity.idm.IIdentityStoreData;
 import com.vmware.identity.idm.OIDCClient;
 import com.vmware.identity.idm.PersonUser;
 import com.vmware.identity.idm.PrincipalId;
+import com.vmware.identity.idm.ResourceServer;
 import com.vmware.identity.idm.SolutionUser;
 import com.vmware.identity.idm.Tenant;
 import com.vmware.identity.idm.client.CasIdmClient;
@@ -94,12 +93,6 @@ public class IdmClient {
         return this.casIdmClient.getAttributeValues(tenantName, id, attributes);
     }
 
-    public Collection<IIdentityStoreData> getProviders(String tenantName, EnumSet<DomainType> domains) throws Exception {
-        Validate.notEmpty(tenantName, "tenantName");
-        Validate.notEmpty(domains, "domains");
-        return this.casIdmClient.getProviders(tenantName, domains);
-    }
-
     public Tenant getTenant(String tenantName) throws Exception {
         Validate.notEmpty(tenantName, "tenantName");
         return this.casIdmClient.getTenant(tenantName);
@@ -119,6 +112,11 @@ public class IdmClient {
         return this.casIdmClient.getTenantCertificate(tenantName);
     }
 
+    public AuthnPolicy getAuthnPolicy(String tenantName) throws Exception {
+        Validate.notEmpty(tenantName, "tenantName");
+        return this.casIdmClient.getAuthnPolicy(tenantName);
+    }
+
     public String getOIDCEntityID(String tenantName) throws Exception {
         Validate.notEmpty(tenantName, "tenantName");
         return this.casIdmClient.getOIDCEntityID(tenantName);
@@ -128,6 +126,12 @@ public class IdmClient {
         Validate.notEmpty(tenantName, "tenantName");
         Validate.notEmpty(clientId, "clientId");
         return this.casIdmClient.getOIDCClient(tenantName, clientId);
+    }
+
+    public ResourceServer getResourceServer(String tenantName, String resourceServerName) throws Exception {
+        Validate.notEmpty(tenantName, "tenantName");
+        Validate.notEmpty(resourceServerName, "resourceServerName");
+        return this.casIdmClient.getResourceServer(tenantName, resourceServerName);
     }
 
     public String getBrandName(String tenantName) throws Exception {

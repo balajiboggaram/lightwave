@@ -231,22 +231,56 @@ public interface IIdentityManager extends java.rmi.Remote
     /*
      *  OIDC Client
      */
-    public void addOIDCClient(String tenantName,
+    public void addOIDCClient(
+            String tenantName,
             OIDCClient oidcClient,
             IIdmServiceContext serviceContext) throws RemoteException, IDMException;
 
-    public void deleteOIDCClient(String tenantName, String clientID, IIdmServiceContext serviceContext)
-            throws RemoteException, IDMException;
+    public void deleteOIDCClient(
+            String tenantName,
+            String clientID,
+            IIdmServiceContext serviceContext) throws RemoteException, IDMException;
 
-    public OIDCClient getOIDCClient(String tenantName, String clientID, IIdmServiceContext serviceContext)
-            throws RemoteException, IDMException;
+    public OIDCClient getOIDCClient(
+            String tenantName,
+            String clientID,
+            IIdmServiceContext serviceContext) throws RemoteException, IDMException;
 
-    public void setOIDCClient(String tenantName,
+    public void setOIDCClient(
+            String tenantName,
             OIDCClient oidcClient,
             IIdmServiceContext serviceContext) throws RemoteException, IDMException;
 
-    public Collection<OIDCClient> getOIDCClients(String tenantName, IIdmServiceContext serviceContext)
-            throws RemoteException, IDMException;
+    public Collection<OIDCClient> getOIDCClients(
+            String tenantName,
+            IIdmServiceContext serviceContext) throws RemoteException, IDMException;
+
+    /*
+     *  ResourceServer
+     */
+    public void addResourceServer(
+            String tenantName,
+            ResourceServer resourceServer,
+            IIdmServiceContext serviceContext) throws RemoteException, IDMException;
+
+    public void deleteResourceServer(
+            String tenantName,
+            String resourceServerName,
+            IIdmServiceContext serviceContext) throws RemoteException, IDMException;
+
+    public ResourceServer getResourceServer(
+            String tenantName,
+            String resourceServerName,
+            IIdmServiceContext serviceContext) throws RemoteException, IDMException;
+
+    public void setResourceServer(
+            String tenantName,
+            ResourceServer resourceServer,
+            IIdmServiceContext serviceContext) throws RemoteException, IDMException;
+
+    public Collection<ResourceServer> getResourceServers(
+            String tenantName,
+            IIdmServiceContext serviceContext) throws RemoteException, IDMException;
 
     /*
      *  IdentityProvider

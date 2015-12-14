@@ -14,14 +14,16 @@
 
 package com.vmware.identity.openidconnect.server;
 
+import java.net.URI;
 import java.net.URISyntaxException;
-import java.text.ParseException;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
 
 import org.apache.commons.lang3.Validate;
 
 import com.nimbusds.oauth2.sdk.OAuth2Error;
 import com.nimbusds.oauth2.sdk.id.ClientID;
-import com.nimbusds.openid.connect.sdk.rp.OIDCClientInformation;
 import com.vmware.identity.idm.NoSuchOIDCClientException;
 import com.vmware.identity.idm.OIDCClient;
 
@@ -36,7 +38,7 @@ public class ClientInfoRetriever {
         this.idmClient = idmClient;
     }
 
-    public OIDCClientInformation retrieveClientInfo(String tenant, ClientID clientId) throws ServerException {
+    public ClientInfo retrieveClientInfo(String tenant, ClientID clientId) throws ServerException {
         Validate.notEmpty(tenant, "tenant");
         Validate.notNull(clientId, "clientId");
 
@@ -44,17 +46,36 @@ public class ClientInfoRetriever {
         try {
             client = this.idmClient.getOIDCClient(tenant, clientId.getValue());
         } catch (NoSuchOIDCClientException e) {
-            throw new ServerException(OAuth2Error.INVALID_REQUEST.setDescription("unregistered client"), e);
+            throw new ServerException(OAuth2Error.INVALID_CLIENT.setDescription("unregistered client"), e);
         } catch (Exception e) {
             throw new ServerException(OAuth2Error.SERVER_ERROR.setDescription("idm error while retrieving client info"), e);
         }
 
-        OIDCClientInformation clientInfo;
+        return new ClientInfo(
+                clientId,
+                uriSetFromStringList(client.getRedirectUris()),
+                uriSetFromStringList(client.getPostLogoutRedirectUris()),
+                client.getLogoutUri() == null ? null : uriFromString(client.getLogoutUri()),
+                client.getCertSubjectDN());
+    }
+
+    private static Set<URI> uriSetFromStringList(List<String> stringList) throws ServerException {
+        Set<URI> uriSet = new HashSet<URI>();
+        if (stringList != null) {
+            for (String s : stringList) {;
+                uriSet.add(uriFromString(s));
+            }
+        }
+        return uriSet;
+    }
+
+    private static URI uriFromString(String s) throws ServerException {
+        URI uri;
         try {
-            clientInfo = OIDCClientUtils.convertToOIDCClientInformation(client);
-        } catch (URISyntaxException | ParseException | com.nimbusds.oauth2.sdk.ParseException e) {
-            throw new ServerException(OAuth2Error.SERVER_ERROR.setDescription("error while constructing client info"), e);
-        };
-        return clientInfo;
+            uri = new URI(s);
+        } catch (URISyntaxException e) {
+            throw new ServerException(OAuth2Error.SERVER_ERROR.setDescription("failed to construct uri from string"), e);
+        }
+        return uri;
     }
 }

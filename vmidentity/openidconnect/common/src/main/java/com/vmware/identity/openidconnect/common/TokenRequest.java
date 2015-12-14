@@ -26,6 +26,7 @@ import com.nimbusds.oauth2.sdk.AuthorizationGrant;
 import com.nimbusds.oauth2.sdk.ClientCredentialsGrant;
 import com.nimbusds.oauth2.sdk.GrantType;
 import com.nimbusds.oauth2.sdk.ParseException;
+import com.nimbusds.oauth2.sdk.RefreshTokenGrant;
 import com.nimbusds.oauth2.sdk.Scope;
 import com.nimbusds.oauth2.sdk.SerializeException;
 import com.nimbusds.oauth2.sdk.auth.ClientAuthentication;
@@ -50,6 +51,7 @@ public class TokenRequest extends com.nimbusds.oauth2.sdk.TokenRequest {
 
         Validate.notNull(uri, "uri");
         Validate.notNull(authzGrant, "authzGrant");
+        ensureGrantAllowsScope(authzGrant, scope);
 
         this.solutionAssertion = null;
         this.correlationId = correlationId;
@@ -66,6 +68,7 @@ public class TokenRequest extends com.nimbusds.oauth2.sdk.TokenRequest {
         Validate.notNull(uri, "uri");
         Validate.notNull(authzGrant, "authzGrant");
         Validate.notNull(solutionAssertion, "solutionAssertion");
+        ensureGrantAllowsScope(authzGrant, scope);
 
         this.solutionAssertion = solutionAssertion;
         this.correlationId = correlationId;
@@ -82,6 +85,7 @@ public class TokenRequest extends com.nimbusds.oauth2.sdk.TokenRequest {
         Validate.notNull(uri, "uri");
         Validate.notNull(authzGrant, "authzGrant");
         Validate.notNull(privateKeyJwt, "clientAuthn");
+        ensureGrantAllowsScope(authzGrant, scope);
 
         this.solutionAssertion = null;
         this.correlationId = correlationId;
@@ -161,7 +165,7 @@ public class TokenRequest extends com.nimbusds.oauth2.sdk.TokenRequest {
         Map<String, String> parameters = httpRequest.getParameters();
 
         String grantTypeString = parameters.get("grant_type");
-        if (grantTypeString == null) {
+        if (StringUtils.isBlank(grantTypeString)) {
             throw new ParseException("missing grant_type parameter");
         }
         GrantType grantType = GrantType.parse(grantTypeString);
@@ -179,7 +183,11 @@ public class TokenRequest extends com.nimbusds.oauth2.sdk.TokenRequest {
             throw new ParseException("client_id parameter is not allowed, send client_assertion instead");
         }
 
-        Scope scope = Scope.parse(parameters.get("scope"));
+        Scope scope = null;
+        String scopeString = parameters.get("scope");
+        if (!StringUtils.isBlank(scopeString)) {
+            scope = Scope.parse(scopeString);
+        }
 
         PrivateKeyJWT privateKeyJwt = null;
         if (parameters.containsKey("client_assertion")) {
@@ -188,7 +196,7 @@ public class TokenRequest extends com.nimbusds.oauth2.sdk.TokenRequest {
 
         SignedJWT solutionAssertion = null;
         String solutionAssertionString = parameters.get("solution_assertion");
-        if (solutionAssertionString != null) {
+        if (!StringUtils.isBlank(solutionAssertionString)) {
             try {
                 solutionAssertion = SignedJWT.parse(solutionAssertionString);
             } catch (java.text.ParseException e) {
@@ -218,6 +226,34 @@ public class TokenRequest extends com.nimbusds.oauth2.sdk.TokenRequest {
             throw new ParseException("client_assertion parameter is required for authz code flow");
         }
 
+        // scope is not allowed in authz code and refresh token grants but required in all others
+        if (grantType.equals(AuthorizationCodeGrant.GRANT_TYPE)) {
+            if (scope != null) {
+                throw new ParseException("scope parameter is not allowed in token request for authz code flow");
+            }
+        } else if (grantType.equals(RefreshTokenGrant.GRANT_TYPE)) {
+            if (scope != null) {
+                throw new ParseException("scope parameter is not allowed in token request for refresh token flow");
+            }
+        } else {
+            if (scope == null) {
+                throw new ParseException("missing scope parameter");
+            }
+        }
+
         return TokenRequest.create(httpRequest.getRequestUri(), authzGrant, scope, solutionAssertion, privateKeyJwt, correlationId);
+    }
+
+    private static void ensureGrantAllowsScope(AuthorizationGrant authzGrant, Scope scope) {
+        GrantType grantType = authzGrant.getType();
+        if (grantType.equals(AuthorizationCodeGrant.GRANT_TYPE) || grantType.equals(RefreshTokenGrant.GRANT_TYPE)) {
+            if (scope != null) {
+                throw new IllegalArgumentException("scope is not allowed in this authz grant type: " + grantType.getValue());
+            }
+        } else {
+            if (scope == null) {
+                throw new IllegalArgumentException("scope is required for this authz grant type: " + grantType.getValue());
+            }
+        }
     }
 }

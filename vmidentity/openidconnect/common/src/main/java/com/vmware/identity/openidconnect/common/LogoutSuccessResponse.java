@@ -44,7 +44,7 @@ public class LogoutSuccessResponse implements Response {
             "        </script>" +
             "    </head>" +
             "    <body>" +
-            "        <!-- logoutUriImageLinks --> %s <!-- logoutUriImageLinks -->" +
+            "        <!-- logoutUriLinks --> %s <!-- logoutUriLinks -->" +
             "    </body>" +
             "</html>";
 
@@ -94,13 +94,13 @@ public class LogoutSuccessResponse implements Response {
                     CommonUtils.appendQueryParameter(this.postLogoutRedirectUri, "state", this.state.getValue());
         }
 
-        StringBuilder logoutUriImageLinks = new StringBuilder();
+        StringBuilder logoutUriLinks = new StringBuilder();
         for (URI logoutUri : this.logoutUris) {
             String logoutUriWithSid = CommonUtils.appendQueryParameter(logoutUri, "sid", this.sessionId.getValue());
-            logoutUriImageLinks.append(String.format("<img src=\"%s\">", logoutUriWithSid));
+            logoutUriLinks.append(String.format("<iframe src=\"%s\">", logoutUriWithSid));
         }
 
-        httpResponse.setContent(String.format(HTML_RESPONSE, postLogoutRedirectUriWithState, logoutUriImageLinks.toString()));
+        httpResponse.setContent(String.format(HTML_RESPONSE, postLogoutRedirectUriWithState, logoutUriLinks.toString()));
 
         return httpResponse;
     }

@@ -20,24 +20,22 @@ import org.apache.commons.lang3.Validate;
  * @author Yehia Zayour
  */
 public enum ScopeValue {
-    ID_TOKEN_GROUPS("id_groups", "groups"),
-    ACCESS_TOKEN_GROUPS("at_groups", "groups"),
-    RESOURCE_SERVER_ADMIN_SERVER("rs_admin_server", "admin_server_role");
+    ID_TOKEN_GROUPS("id_groups"),
+    ID_TOKEN_GROUPS_FILTERED("id_groups_filtered"),
+    ACCESS_TOKEN_GROUPS("at_groups"),
+    ACCESS_TOKEN_GROUPS_FILTERED("at_groups_filtered"),
+    RESOURCE_SERVER_ADMIN_SERVER("rs_admin_server");
+
+    public static final String RESOURCE_SERVER_PREFIX = "rs_";
 
     private final String name;
-    private final String mappedClaimName;
 
-    private ScopeValue(String name, String mappedClaimName) {
+    private ScopeValue(String name) {
         this.name = name;
-        this.mappedClaimName = mappedClaimName;
     }
 
     public String getName() {
         return this.name;
-    }
-
-    public String getMappedClaimName() {
-        return this.mappedClaimName;
     }
 
     public static boolean isDefined(String scopeValueName) {

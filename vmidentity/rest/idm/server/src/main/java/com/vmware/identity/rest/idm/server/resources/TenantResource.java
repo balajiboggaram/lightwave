@@ -474,6 +474,10 @@ public class TenantResource extends BaseResource {
         return new OIDCClientResource(tenantName, getRequest(), getSecurityContext());
     }
 
+ @Path(PathParameters.TENANT_NAME_VAR + "/resourceserver")
+    public ResourceServerResource getResourceServerSubResource(@PathParam(PathParameters.TENANT_NAME) String tenantName) {
+        return new ResourceServerResource(tenantName, getRequest(), getSecurityContext());
+    }
     private void validateConfigType(String configName) {
         try {
             TenantConfigType.valueOf(configName.toUpperCase());

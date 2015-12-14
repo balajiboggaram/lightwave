@@ -29,6 +29,23 @@ import com.nimbusds.oauth2.sdk.id.State;
  * @author Yehia Zayour
  */
 public class LogoutRequest extends com.nimbusds.openid.connect.sdk.LogoutRequest {
+    private static final String HTML_FORM =
+            "<html>" +
+            "    <head>" +
+            "        <script language=\"JavaScript\" type=\"text/javascript\">" +
+            "            function load(){ document.getElementById('LogoutRequestForm').submit(); }" +
+            "        </script>" +
+            "    </head>" +
+            "    <body onload=\"load()\">" +
+            "        <form method=\"post\" id=\"LogoutRequestForm\" action=\"%s\">" +
+            "            %s" +
+            "            <input type=\"submit\" value=\"Submit\" style=\"position:absolute; left:-9999px; width:1px; height:1px;\" />" +
+            "        </form>" +
+            "    </body>" +
+            "</html>";
+
+    private static final String HTML_FORM_PARAMETER = "<input type=\"hidden\" name=\"%s\" value=\"%s\" />";
+
     private final SignedJWT clientAssertion;
     private final CorrelationID correlationId;
 
@@ -73,6 +90,19 @@ public class LogoutRequest extends com.nimbusds.openid.connect.sdk.LogoutRequest
         return result;
     }
 
+    public String toHtmlForm() throws SerializeException {
+        Map<String, String> parameters = this.toParameters();
+        StringBuilder formParameters = new StringBuilder();
+        for (Map.Entry<String, String> entry : parameters.entrySet()) {
+            String parameterName = entry.getKey();
+            String parameterValue = entry.getValue();
+            formParameters.append(String.format(HTML_FORM_PARAMETER, parameterName, parameterValue));
+        }
+
+        String formAction = super.getEndpointURI().toString();
+        return String.format(HTML_FORM, formAction, formParameters.toString());
+    }
+
     public static LogoutRequest parse(HttpRequest httpRequest) throws ParseException {
         Validate.notNull(httpRequest, "httpRequest");
 
@@ -89,7 +119,7 @@ public class LogoutRequest extends com.nimbusds.openid.connect.sdk.LogoutRequest
 
         SignedJWT clientAssertion = null;
         String clientAssertionString = parameters.get("client_assertion");
-        if (clientAssertionString != null) {
+        if (!StringUtils.isBlank(clientAssertionString)) {
             try {
                 clientAssertion = SignedJWT.parse(clientAssertionString);
             } catch (java.text.ParseException e) {

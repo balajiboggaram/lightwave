@@ -34,13 +34,13 @@ public class SolutionUserCredentialsGrant extends AuthorizationGrant {
     }
 
     @Override
-    public Map<String,String> toParameters() {
-        Map<String,String> parameters = new HashMap<String, String>();
+    public Map<String, String> toParameters() {
+        Map<String, String> parameters = new HashMap<String, String>();
         parameters.put("grant_type", GRANT_TYPE.getValue());
         return parameters;
     }
 
-    public static SolutionUserCredentialsGrant parse(Map<String,String> parameters) throws ParseException {
+    public static SolutionUserCredentialsGrant parse(Map<String, String> parameters) throws ParseException {
         Validate.notNull(parameters, "parameters");
         String grantTypeString = parameters.get("grant_type");
         if (!GRANT_TYPE.getValue().equals(grantTypeString)) {

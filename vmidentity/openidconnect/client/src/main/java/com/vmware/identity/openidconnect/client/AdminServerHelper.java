@@ -37,6 +37,8 @@ import com.nimbusds.oauth2.sdk.http.HTTPResponse;
  *
  * @author Jun Sun
  */
+
+@Deprecated
 public class AdminServerHelper {
     private final URL adminServerBaseURL;
     private final String tenant;

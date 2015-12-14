@@ -14,48 +14,81 @@
 
 package com.vmware.identity.openidconnect.server;
 
+import java.util.Collections;
+import java.util.HashSet;
+import java.util.Set;
+
 import org.apache.commons.lang3.Validate;
 
-import com.nimbusds.openid.connect.sdk.rp.OIDCClientInformation;
+import com.nimbusds.oauth2.sdk.id.ClientID;
 import com.vmware.identity.openidconnect.common.SessionID;
 
 /**
  * @author Yehia Zayour
  */
 public class SessionManager {
-    private static final long LIFE_TIME_MS = 1000L * 60 * 60 * 8; // 8 hours
-    private final SlidingWindowMap<SessionID, SessionEntry> map;
+    private static final long LIFETIME_MS = 8 * 60 * 60 * 1000L; // 8 hours
+    private final SlidingWindowMap<SessionID, Entry> map;
 
     public SessionManager() {
-        this.map = new SlidingWindowMap<SessionID, SessionEntry>(LIFE_TIME_MS);
+        this.map = new SlidingWindowMap<SessionID, Entry>(LIFETIME_MS);
     }
 
-    public synchronized void add(SessionID sessionId, PersonUser personUser, OIDCClientInformation client) {
+    public synchronized void add(SessionID sessionId, PersonUser personUser, ClientInfo client) {
         Validate.notNull(sessionId, "sessionId");
         Validate.notNull(personUser, "personUser");
         Validate.notNull(client, "client");
 
-        this.map.add(sessionId, new SessionEntry(personUser, client));
+        this.map.add(sessionId, new Entry(personUser, client));
     }
 
-    public synchronized SessionEntry update(SessionID sessionId, OIDCClientInformation client) {
+    public synchronized Entry update(SessionID sessionId, ClientInfo client) {
         Validate.notNull(sessionId, "sessionId");
         Validate.notNull(client, "client");
 
-        SessionEntry entry = this.map.get(sessionId);
+        Entry entry = this.map.get(sessionId);
         if (entry != null) {
             entry.add(client);
         }
         return entry;
     }
 
-    public synchronized SessionEntry remove(SessionID sessionId) {
+    public synchronized Entry remove(SessionID sessionId) {
         Validate.notNull(sessionId, "sessionId");
         return this.map.remove(sessionId);
     }
 
-    public synchronized SessionEntry get(SessionID sessionId) {
+    public synchronized Entry get(SessionID sessionId) {
         Validate.notNull(sessionId, "sessionId");
         return this.map.get(sessionId);
+    }
+
+    public static class Entry {
+        private final PersonUser personUser;
+        private final Set<ClientInfo> clients;
+        private final Set<ClientID> clientIds;
+
+        private Entry(PersonUser personUser, ClientInfo client) {
+            this.personUser = personUser;
+            this.clients = new HashSet<ClientInfo>();
+            this.clients.add(client);
+            this.clientIds = new HashSet<ClientID>();
+            this.clientIds.add(client.getID());
+        }
+
+        public PersonUser getPersonUser() {
+            return this.personUser;
+        }
+
+        public Set<ClientInfo> getClients() {
+            return Collections.unmodifiableSet(this.clients);
+        }
+
+        private void add(ClientInfo client) {
+            if (!this.clientIds.contains(client.getID())) {
+                this.clientIds.add(client.getID());
+                this.clients.add(client);
+            }
+        }
     }
 }

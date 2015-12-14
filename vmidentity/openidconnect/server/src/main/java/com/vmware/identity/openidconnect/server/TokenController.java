@@ -60,14 +60,14 @@ public class TokenController {
     }
 
     @RequestMapping(value = "/token", method = RequestMethod.POST, consumes = "application/x-www-form-urlencoded")
-    public void token(
+    public void acquireTokens(
             HttpServletRequest request,
             HttpServletResponse response) throws IOException {
-        token(request, response, null);
+        acquireTokens(request, response, null);
     }
 
     @RequestMapping(value = "/token/{tenant:.*}", method = RequestMethod.POST, consumes = "application/x-www-form-urlencoded")
-    public void token(
+    public void acquireTokens(
             HttpServletRequest request,
             HttpServletResponse response,
             @PathVariable("tenant") String tenant) throws IOException {

@@ -19,15 +19,14 @@ import java.util.Date;
 import java.util.List;
 import java.util.Objects;
 
-import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.Validate;
 
 import com.nimbusds.jose.JOSEException;
 import com.nimbusds.jose.crypto.RSASSAVerifier;
 import com.nimbusds.jwt.ReadOnlyJWTClaimsSet;
 import com.nimbusds.jwt.SignedJWT;
+import com.nimbusds.oauth2.sdk.ErrorObject;
 import com.nimbusds.oauth2.sdk.OAuth2Error;
-import com.nimbusds.openid.connect.sdk.rp.OIDCClientInformation;
 import com.vmware.identity.openidconnect.common.TokenClass;
 
 /**
@@ -43,26 +42,30 @@ public class SolutionUserAuthenticator {
 
     public SolutionUser authenticateBySolutionAssertion(
             SignedJWT solutionAssertion,
+            long solutionAssertionLifetimeMs,
             URL requestUrl,
-            TenantInformation tenantInfo) throws ServerException {
-        return authenticateByAssertion(solutionAssertion, requestUrl, tenantInfo, (OIDCClientInformation) null);
+            TenantInfo tenantInfo) throws ServerException {
+        return authenticateByAssertion(solutionAssertion, solutionAssertionLifetimeMs, requestUrl, tenantInfo, (ClientInfo) null);
     }
 
     public SolutionUser authenticateByClientAssertion(
             SignedJWT clientAssertion,
+            long clientAssertionLifetimeMs,
             URL requestUrl,
-            TenantInformation tenantInfo,
-            OIDCClientInformation clientInfo) throws ServerException {
+            TenantInfo tenantInfo,
+            ClientInfo clientInfo) throws ServerException {
         Validate.notNull(clientInfo, "clientInfo");
-        return authenticateByAssertion(clientAssertion, requestUrl, tenantInfo, clientInfo);
+        return authenticateByAssertion(clientAssertion, clientAssertionLifetimeMs, requestUrl, tenantInfo, clientInfo);
     }
 
     private SolutionUser authenticateByAssertion(
             SignedJWT assertion,
+            long assertionLifetimeMs,
             URL requestUrl,
-            TenantInformation tenantInfo,
-            OIDCClientInformation clientInfo) throws ServerException {
+            TenantInfo tenantInfo,
+            ClientInfo clientInfo) throws ServerException {
         Validate.notNull(assertion, "assertion");
+        Validate.isTrue(assertionLifetimeMs > 0, "assertionLifetimeMs should be positive");
         Validate.notNull(requestUrl, "requestUrl");
         Validate.notNull(tenantInfo, "tenantInfo");
 
@@ -72,17 +75,17 @@ public class SolutionUserAuthenticator {
         try {
             claimsSet = assertion.getJWTClaimsSet();
         } catch (java.text.ParseException e) {
-            throw new ServerException(OAuth2Error.INVALID_CLIENT.setDescription("failed to parse claims out of jwt"), e);
+            throw new ServerException(OAuth2Error.INVALID_CLIENT.setDescription("failed to parse claims out of assertion"), e);
         }
 
-        String error = validateAssertionClaims(claimsSet, requestUrl, tenantInfo, clientInfo);
+        ErrorObject error = validateAssertionClaims(claimsSet, assertionLifetimeMs, requestUrl, tenantInfo, clientInfo);
         if (error != null) {
-            throw new ServerException(OAuth2Error.INVALID_CLIENT.setDescription(error));
+            throw new ServerException(error);
         }
 
         String certSubjectDn;
         if (clientInfo != null) {
-            certSubjectDn = (String) clientInfo.getOIDCMetadata().getCustomField("cert_subject_dn");
+            certSubjectDn = clientInfo.getCertSubjectDn();
             if (certSubjectDn == null) {
                 throw new ServerException(OAuth2Error.INVALID_CLIENT.setDescription("client authn failed because client did not register a cert"));
             }
@@ -96,10 +99,10 @@ public class SolutionUserAuthenticator {
         try {
             validSignature = assertion.verify(new RSASSAVerifier(solutionUser.getPublicKey()));
         } catch (JOSEException e) {
-            throw new ServerException(OAuth2Error.SERVER_ERROR.setDescription("error while verifying signature"), e);
+            throw new ServerException(OAuth2Error.SERVER_ERROR.setDescription("error while verifying assertion signature"), e);
         }
         if (!validSignature) {
-            throw new ServerException(OAuth2Error.INVALID_CLIENT.setDescription("jwt has an invalid signature"));
+            throw new ServerException(OAuth2Error.INVALID_CLIENT.setDescription("assertion has an invalid signature"));
         }
 
         return solutionUser;
@@ -129,20 +132,14 @@ public class SolutionUserAuthenticator {
         return new SolutionUser(idmSolutionUser.getId(), tenant, idmSolutionUser.getCert());
     }
 
-    private static String validateAssertionClaims(
+    private static ErrorObject validateAssertionClaims(
             ReadOnlyJWTClaimsSet claimsSet,
+            long assertionLifetimeMs,
             URL requestUrl,
-            TenantInformation tenantInfo,
-            OIDCClientInformation clientInfo) {
-        String error = null;
-
-        if (claimsSet.getIssuer() == null) {
-            error = "jwt is missing iss (issuer) claim";
-        }
-
-        if (error == null && claimsSet.getSubject() == null) {
-            error = "jwt is missing sub (subject) claim";
-        }
+            TenantInfo tenantInfo,
+            ClientInfo clientInfo) {
+        ErrorObject claimsError  = CommonValidator.validateBaseJwtClaims(claimsSet, (clientInfo != null) ? TokenClass.CLIENT_ASSERTION : TokenClass.SOLUTION_ASSERTION);
+        String error = (claimsError == null) ? null : claimsError.getDescription();
 
         if (error == null && !Objects.equals(claimsSet.getIssuer(), claimsSet.getSubject())) {
             error = "assertion issuer and subject must be the same";
@@ -153,55 +150,22 @@ public class SolutionUserAuthenticator {
         }
 
         if (error == null) {
-            try {
-                TokenClass tokenClass = (clientInfo != null) ? TokenClass.CLIENT_ASSERTION : TokenClass.SOLUTION_ASSERTION;
-                if (!tokenClass.getName().equals(claimsSet.getStringClaim("token_class"))) {
-                    error = String.format("jwt is missing a token_class=%s claim", tokenClass.getName());
-                }
-                if (error == null && !("Bearer").equals(claimsSet.getStringClaim("token_type"))) {
-                    error = "jwt is missing a token_type=Bearer claim";
-                }
-            } catch (java.text.ParseException e) {
-                error = "failed to parse claims out of assertion";
-            }
-        }
-
-        if (error == null && StringUtils.isEmpty(claimsSet.getJWTID())) {
-            error = "jwt is missing a jti (jwt id) claim";
-        }
-
-        if (error == null) {
             // if we are behind rhttp proxy, the requestUrl will have http scheme instead of https
             String requestUrlHttps = requestUrl.toString().replaceFirst("http://", "https://");
             List<String> audience = claimsSet.getAudience();
-            if (audience == null || !(audience.size() == 1 && audience.get(0).equals(requestUrlHttps))) {
-                error = "jwt audience does not match request URL";
+            if (!(audience.size() == 1 && audience.get(0).equals(requestUrlHttps))) {
+                error = "assertion audience does not match request URL";
             }
         }
 
         Date now = new Date();
-
-        Date expirationTime = claimsSet.getExpirationTime();
-        if (error == null && expirationTime == null) {
-            error = "jwt is missing an exp (expiration) claim";
-        }
-
-        if (error == null && expirationTime.before(now)) {
-            error = "jwt has expired";
-        }
-
         Date issueTime = claimsSet.getIssueTime();
-        if (error == null && issueTime == null) {
-            error = "jwt is missing an iat (issued at) claim";
-        }
-
-        // check that the jwt was issued recently (leave some leeway for clock skew)
-        Date lowerBound = new Date(now.getTime() - tenantInfo.getClockToleranceMs());
+        Date lowerBound = new Date(now.getTime() - tenantInfo.getClockToleranceMs() - assertionLifetimeMs);
         Date upperBound = new Date(now.getTime() + tenantInfo.getClockToleranceMs());
         if (error == null && (issueTime.before(lowerBound) || issueTime.after(upperBound))) {
-            error = "jwt must be issued recently";
+            error = (clientInfo != null) ? "stale_client_assertion" : "stale_solution_assertion";
         }
 
-        return error;
+        return (error == null) ? null : OAuth2Error.INVALID_CLIENT.setDescription(error);
     }
 }

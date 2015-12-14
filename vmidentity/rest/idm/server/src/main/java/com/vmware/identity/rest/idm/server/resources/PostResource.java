@@ -37,6 +37,7 @@ import com.vmware.identity.rest.idm.data.IdentityProviderDTO;
 import com.vmware.identity.rest.idm.data.OIDCClientDTO;
 import com.vmware.identity.rest.idm.data.PrivateKeyDTO;
 import com.vmware.identity.rest.idm.data.RelyingPartyDTO;
+import com.vmware.identity.rest.idm.data.ResourceServerDTO;
 import com.vmware.identity.rest.idm.data.SearchResultDTO;
 import com.vmware.identity.rest.idm.data.ServerDetailsDTO;
 import com.vmware.identity.rest.idm.data.SolutionUserDTO;
@@ -238,5 +239,20 @@ public class PostResource extends BaseResource {
     @RequiresRole(role = Role.ADMINISTRATOR)
     public Collection<OIDCClientDTO> getAllOidcClients(@PathParam("tenantName") String tenantName, @PathParam("clientId") String clientId) {
         return new OIDCClientResource(tenantName, getRequest(), getSecurityContext()).getAll();
+    }
+ // Resource Server Resource
+
+    @POST @Path("/tenant/{tenantName}/resourceserver/{resourceServerName}")
+    @Consumes(MediaType.APPLICATION_JSON) @Produces(MediaType.APPLICATION_JSON)
+    @RequiresRole(role = Role.ADMINISTRATOR)
+    public ResourceServerDTO getResourceServer(@PathParam("tenantName") String tenantName, @PathParam("resourceServerName") String resourceServerName) {
+        return new ResourceServerResource(tenantName, getRequest(), getSecurityContext()).get(resourceServerName);
+    }
+
+    @POST @Path("/tenant/{tenantName}/resourceserver")
+    @Consumes(MediaType.APPLICATION_JSON) @Produces(MediaType.APPLICATION_JSON)
+    @RequiresRole(role = Role.ADMINISTRATOR)
+    public Collection<ResourceServerDTO> getAllResourceServers(@PathParam("tenantName") String tenantName, @PathParam("resourceServerName") String resourceServerName) {
+        return new ResourceServerResource(tenantName, getRequest(), getSecurityContext()).getAll();
     }
 }

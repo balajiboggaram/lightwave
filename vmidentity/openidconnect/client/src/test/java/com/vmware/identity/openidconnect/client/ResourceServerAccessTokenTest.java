@@ -57,7 +57,8 @@ public class ResourceServerAccessTokenTest {
                 TestUtils.buildBaseToken(issuer, resourceServer, TokenClass.ACCESS_TOKEN.getName(), providerPrivateKey, tokenLifeTime),
                 providerPublicKey,
                 resourceServer,
-                issuer);
+                issuer,
+                0L);
         Assert.assertTrue(accessToken.getAudience().contains(resourceServer));
         Assert.assertEquals(issuer.getValue(), accessToken.getIssuer());
     }
@@ -75,7 +76,8 @@ public class ResourceServerAccessTokenTest {
                     TestUtils.buildBaseToken(issuer, resourceServer, TokenClass.ACCESS_TOKEN.getName(), providerPrivateKey, tokenLifeTime),
                     anotherProviderPublicKey,
                     resourceServer,
-                    issuer);
+                    issuer,
+                    0L);
         } catch (TokenValidationException e) {
             Assert.assertEquals(TokenValidationError.INVALID_SIGNATURE, e.getTokenValidationError());
         }
@@ -91,7 +93,8 @@ public class ResourceServerAccessTokenTest {
                     TestUtils.buildBaseToken(issuer, resourceServer, TokenClass.ACCESS_TOKEN.getName(), providerPrivateKey, tokenLifeTime),
                     providerPublicKey,
                     anotherResourceServer,
-                    issuer);
+                    issuer,
+                    0L);
         } catch (TokenValidationException e) {
             Assert.assertEquals(TokenValidationError.INVALID_AUDIENCE, e.getTokenValidationError());
         }
@@ -105,7 +108,8 @@ public class ResourceServerAccessTokenTest {
                     TestUtils.buildBaseToken(issuer, resourceServer, TokenClass.ACCESS_TOKEN.getName(), providerPrivateKey, -tokenLifeTime),
                     providerPublicKey,
                     resourceServer,
-                    issuer);
+                    issuer,
+                    0L);
         } catch (TokenValidationException e) {
             Assert.assertEquals(TokenValidationError.EXPIRED_TOKEN, e.getTokenValidationError());
         }
@@ -119,9 +123,23 @@ public class ResourceServerAccessTokenTest {
                     TestUtils.buildBaseToken(issuer, resourceServer, TokenClass.ID_TOKEN.getName(), providerPrivateKey, tokenLifeTime),
                     providerPublicKey,
                     resourceServer,
-                    issuer);
+                    issuer,
+                    0L);
         } catch (TokenValidationException e) {
             Assert.assertEquals(TokenValidationError.INVALID_TOKEN_CLASS, e.getTokenValidationError());
         }
+    }
+
+    @Test
+    public void testBuildAccessTokenValidWithTolerance() throws Exception {
+
+        ResourceServerAccessToken accessToken =  ResourceServerAccessToken.build(
+                TestUtils.buildBaseToken(issuer, resourceServer, TokenClass.ACCESS_TOKEN.getName(), providerPrivateKey, -tokenLifeTime),
+                providerPublicKey,
+                resourceServer,
+                issuer,
+                tokenLifeTime);
+        Assert.assertTrue(accessToken.getAudience().contains(resourceServer));
+        Assert.assertEquals(issuer.getValue(), accessToken.getIssuer());
     }
 }

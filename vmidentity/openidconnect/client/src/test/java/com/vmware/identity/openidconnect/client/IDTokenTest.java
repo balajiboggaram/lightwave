@@ -55,7 +55,7 @@ public class IDTokenTest {
     public void testBuildIdToken() throws Exception {
 
         SignedJWT signedJWT = SignedJWT.parse(TestUtils.buildBaseToken(issuer, clientID.getValue(), TokenClass.ID_TOKEN.getName(), providerPrivateKey, tokenLifeTime));
-        IDToken idToken = IDToken.build(signedJWT, providerPublicKey, clientID, issuer);
+        IDToken idToken = IDToken.build(signedJWT, providerPublicKey, clientID, issuer, 0L);
         Assert.assertTrue(idToken.getAudience().contains(clientID.getValue()));
         Assert.assertEquals(issuer.getValue(), idToken.getIssuer().getValue());
     }
@@ -70,7 +70,7 @@ public class IDTokenTest {
 
         SignedJWT signedJWT = SignedJWT.parse(TestUtils.buildBaseToken(issuer, clientID.getValue(), TokenClass.ID_TOKEN.getName(), providerPrivateKey, tokenLifeTime));
         try {
-            IDToken.build(signedJWT, anotherProviderPublicKey, clientID, issuer);
+            IDToken.build(signedJWT, anotherProviderPublicKey, clientID, issuer, 0L);
         } catch (TokenValidationException e) {
             Assert.assertEquals(TokenValidationError.INVALID_SIGNATURE, e.getTokenValidationError());
         }
@@ -83,7 +83,7 @@ public class IDTokenTest {
 
         SignedJWT signedJWT = SignedJWT.parse(TestUtils.buildBaseToken(issuer, clientID.getValue(), TokenClass.ID_TOKEN.getName(), providerPrivateKey, tokenLifeTime));
         try {
-            IDToken.build(signedJWT, providerPublicKey, anotherClientID, issuer);
+            IDToken.build(signedJWT, providerPublicKey, anotherClientID, issuer, 0L);
         } catch (TokenValidationException e) {
             Assert.assertEquals(TokenValidationError.INVALID_AUDIENCE, e.getTokenValidationError());
         }
@@ -94,7 +94,7 @@ public class IDTokenTest {
 
         SignedJWT signedJWT = SignedJWT.parse(TestUtils.buildBaseToken(issuer, clientID.getValue(), TokenClass.ID_TOKEN.getName(), providerPrivateKey, -tokenLifeTime));
         try {
-            IDToken.build(signedJWT, providerPublicKey, clientID, issuer);
+            IDToken.build(signedJWT, providerPublicKey, clientID, issuer, 0L);
         } catch (TokenValidationException e) {
             Assert.assertEquals(TokenValidationError.EXPIRED_TOKEN, e.getTokenValidationError());
         }
@@ -105,9 +105,18 @@ public class IDTokenTest {
 
         SignedJWT signedJWT = SignedJWT.parse(TestUtils.buildBaseToken(issuer, clientID.getValue(), TokenClass.ACCESS_TOKEN.getName(), providerPrivateKey, tokenLifeTime));
         try {
-            IDToken.build(signedJWT, providerPublicKey, clientID, issuer);
+            IDToken.build(signedJWT, providerPublicKey, clientID, issuer, 0L);
         } catch (TokenValidationException e) {
             Assert.assertEquals(TokenValidationError.INVALID_TOKEN_CLASS, e.getTokenValidationError());
         }
+    }
+
+    @Test
+    public void testBuildIdTokenValidWithTolerance() throws Exception {
+
+        SignedJWT signedJWT = SignedJWT.parse(TestUtils.buildBaseToken(issuer, clientID.getValue(), TokenClass.ID_TOKEN.getName(), providerPrivateKey, -tokenLifeTime));
+        IDToken idToken = IDToken.build(signedJWT, providerPublicKey, clientID, issuer, tokenLifeTime);
+        Assert.assertTrue(idToken.getAudience().contains(clientID.getValue()));
+        Assert.assertEquals(issuer.getValue(), idToken.getIssuer().getValue());
     }
 }

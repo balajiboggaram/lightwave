@@ -16,8 +16,6 @@ package com.vmware.identity.openidconnect.client;
 
 import java.util.List;
 
-import org.apache.commons.lang3.Validate;
-
 /**
  * Token Spec
  *
@@ -25,29 +23,20 @@ import org.apache.commons.lang3.Validate;
  */
 public class TokenSpec {
 
-    private final TokenType tokenType;
+    public static final TokenSpec EMPTY = new TokenSpec(new Builder());
+
     private final boolean refreshTokenRequested;
-    private final boolean idTokenGroupsRequested;
-    private final boolean accessTokenGroupsRequested;
+    private final GroupMembershipType idTokenGroupsRequested;
+    private final GroupMembershipType accessTokenGroupsRequested;
     private final List<String> resouceServers;
     private final List<String> additionalScopeValues;
 
     private TokenSpec(Builder builder) {
-        this.tokenType = builder.tokenType;
         this.refreshTokenRequested = builder.refreshTokenRequested;
         this.idTokenGroupsRequested = builder.idTokenGroupsRequested;
         this.accessTokenGroupsRequested = builder.accessTokenGroupsRequested;
         this.resouceServers = builder.resouceServers;
         this.additionalScopeValues = builder.additionalScopeValues;
-    }
-
-    /**
-     * Get token type
-     *
-     * @return                          Token type
-     */
-    public TokenType getTokenType() {
-        return this.tokenType;
     }
 
     /**
@@ -60,20 +49,20 @@ public class TokenSpec {
     }
 
     /**
-     * Get id token group request flag
+     * Get id token group requested
      *
-     * @return                          Boolean, id token group request flag
+     * @return                          GroupMembershipType
      */
-    public boolean isIdTokenGroupsRequested() {
+    public GroupMembershipType idTokenGroupsRequested() {
         return this.idTokenGroupsRequested;
     }
 
     /**
-     * Get access token group request flag
+     * Get access token group requested
      *
-     * @return                          Boolean, access token group request flag
+     * @return                          GroupMembershipType
      */
-    public boolean isAccessTokenGroupsRequested() {
+    public GroupMembershipType accessTokenGroupsRequested() {
         return this.accessTokenGroupsRequested;
     }
 
@@ -99,20 +88,16 @@ public class TokenSpec {
      * Builder for TokenSpec class
      */
     public static class Builder {
-        private final TokenType tokenType;
         private boolean refreshTokenRequested;
-        private boolean idTokenGroupsRequested;
-        private boolean accessTokenGroupsRequested;
+        private GroupMembershipType idTokenGroupsRequested;
+        private GroupMembershipType accessTokenGroupsRequested;
         private List<String> resouceServers;
         private List<String> additionalScopeValues;
 
         /**
          * Constructor
-         *
-         * @param tokenType                     Token type
          */
-        public Builder(TokenType tokenType) {
-            this.tokenType = tokenType;
+        public Builder() {
         }
 
         /**
@@ -129,10 +114,10 @@ public class TokenSpec {
         /**
          * Set id token group request flag
          *
-         * @param idTokenGroupsRequested        Boolean, id token group request flag
+         * @param idTokenGroupsRequested        GroupMembershipType
          * @return                              Builder object
          */
-        public Builder idTokenGroups(boolean idTokenGroupsRequested) {
+        public Builder idTokenGroups(GroupMembershipType idTokenGroupsRequested) {
             this.idTokenGroupsRequested = idTokenGroupsRequested;
             return this;
         }
@@ -140,10 +125,10 @@ public class TokenSpec {
         /**
          * Set access token group request flag
          *
-         * @param accessTokenGroupsRequested    Boolean, access token group request flag
+         * @param accessTokenGroupsRequested    GroupMembershipType
          * @return                              Builder object
          */
-        public Builder accessTokenGroups(boolean accessTokenGroupsRequested) {
+        public Builder accessTokenGroups(GroupMembershipType accessTokenGroupsRequested) {
             this.accessTokenGroupsRequested = accessTokenGroupsRequested;
             return this;
         }
@@ -176,8 +161,6 @@ public class TokenSpec {
          * @return                              Builder object
          */
         public TokenSpec build() {
-            Validate.notNull(this.tokenType, "tokenType");
-
             return new TokenSpec(this);
         }
     }

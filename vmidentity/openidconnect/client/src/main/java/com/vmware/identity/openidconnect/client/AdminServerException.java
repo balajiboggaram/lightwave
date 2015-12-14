@@ -20,6 +20,8 @@ package com.vmware.identity.openidconnect.client;
  *
  * @author Jun Sun
  */
+
+@Deprecated
 public class AdminServerException extends Exception {
 
     private static final long serialVersionUID = 1L;

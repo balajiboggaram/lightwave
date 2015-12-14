@@ -41,12 +41,8 @@ import com.nimbusds.jose.jwk.RSAKey;
 import com.nimbusds.jwt.ReadOnlyJWTClaimsSet;
 import com.nimbusds.jwt.SignedJWT;
 import com.nimbusds.oauth2.sdk.ErrorObject;
-import com.nimbusds.oauth2.sdk.GrantType;
 import com.nimbusds.oauth2.sdk.OAuth2Error;
-import com.nimbusds.oauth2.sdk.Scope;
-import com.nimbusds.openid.connect.sdk.OIDCScopeValue;
 import com.vmware.identity.diagnostics.IDiagnosticsLogger;
-import com.vmware.identity.openidconnect.common.SolutionUserCredentialsGrant;
 
 /**
  * @author Yehia Zayour
@@ -61,43 +57,6 @@ public class Shared {
     public static String getSessionCookieName(String tenant) {
         Validate.notEmpty(tenant, "tenant");
         return String.format("%s-%s", SESSION_COOKIE_NAME, tenant);
-    }
-
-    public static ErrorObject validateScope(Scope scope, GrantType grantType) {
-        Validate.notNull(grantType, "grantType");
-
-        ErrorObject error = null;
-
-        if (scope == null || !scope.contains(OIDCScopeValue.OPENID)) {
-            error = OAuth2Error.INVALID_REQUEST.setDescription("missing scope=openid parameter");
-        }
-
-        if (error == null) {
-            for (String scopeValue : scope.toStringList()) {
-                boolean valid =
-                        scopeValue.equals(OIDCScopeValue.OPENID.toString()) ||
-                        scopeValue.equals(OIDCScopeValue.OFFLINE_ACCESS.toString()) ||
-                        scopeValue.startsWith("rs_") ||
-                        ScopeValue.isDefined(scopeValue);
-                if (!valid) {
-                    error = OAuth2Error.INVALID_SCOPE.setDescription("unrecognized scope value: " + scopeValue);
-                    break;
-                }
-            }
-        }
-
-        if (error == null) {
-            boolean refreshTokenDisallowed =
-                    grantType.equals(GrantType.IMPLICIT) ||
-                    grantType.equals(GrantType.REFRESH_TOKEN) ||
-                    grantType.equals(GrantType.CLIENT_CREDENTIALS) ||
-                    grantType.equals(SolutionUserCredentialsGrant.GRANT_TYPE);
-            if (refreshTokenDisallowed && scope.contains(OIDCScopeValue.OFFLINE_ACCESS)) {
-                error = OAuth2Error.INVALID_SCOPE.setDescription("refresh token (offline_access) is not allowed for this grant_type");
-            }
-        }
-
-        return error;
     }
 
     public static SignedJWT sign(

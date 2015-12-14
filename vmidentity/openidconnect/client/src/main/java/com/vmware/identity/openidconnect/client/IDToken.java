@@ -47,7 +47,8 @@ public class IDToken {
             SignedJWT signedJWT,
             RSAPublicKey providerPublicKey,
             ClientID clientId,
-            Issuer issuer) throws TokenValidationException {
+            Issuer issuer,
+            long clockToleranceInSeconds) throws TokenValidationException {
         Validate.notNull(signedJWT, "signedJWT");
         Validate.notNull(providerPublicKey, "providerPublicKey");
         Validate.notNull(issuer, "issuer");
@@ -63,7 +64,7 @@ public class IDToken {
         }
 
         // verify claims
-        Date now = new Date();
+        Date adjustedCurrentDate = new Date(new Date().getTime() - clockToleranceInSeconds * 1000);
         ReadOnlyJWTClaimsSet jwtClaimsSet = null;
         try {
             jwtClaimsSet = signedJWT.getJWTClaimsSet();
@@ -75,8 +76,7 @@ public class IDToken {
                 }
             }
 
-            // TODO: add clock skew
-            if ((jwtClaimsSet.getExpirationTime().before(now /* + clockSkew */))) {
+            if ((jwtClaimsSet.getExpirationTime().before(adjustedCurrentDate))) {
                 throw new TokenValidationException(TokenValidationError.EXPIRED_TOKEN, "Token is expired.");
             }
 

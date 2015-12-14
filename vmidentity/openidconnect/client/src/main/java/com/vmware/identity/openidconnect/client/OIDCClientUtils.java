@@ -240,16 +240,11 @@ class OIDCClientUtils {
         Validate.notNull(tokenEndpointURI, "tokenEndpointURI");
 
         Scope scope = OIDCClientUtils.buildScopeFromTokenSpec(tokenSpec);
-        List<String> scopeList = scope.getScopeList();
 
         SignedJWT solutionAssertion = null;
         PrivateKeyJWT clientAssertion = null;
 
-        if (tokenSpec.getTokenType().equals(TokenType.HOK)) {
-            if (holderOfKeyConfig == null) {
-                throw new OIDCClientException("Holder of key configuation can not be null if HOK token is requested.");
-            }
-
+        if (holderOfKeyConfig != null) {
             try {
                 SignedJWT signedJWT = createAssertion(
                         clientId,
@@ -273,15 +268,10 @@ class OIDCClientUtils {
             throw new OIDCClientException("Client credentials grant requires an non-null client assertion.");
         }
 
-        if (grant instanceof RefreshTokenGrant || grant instanceof AuthorizationCodeGrant) {
-            // refresh token and authorization code grant requires a null scope
-            scopeList = null;
-        }
-
         return TokenRequest.create(
                 tokenEndpointURI,
                 grant.toNimbusAuthorizationGrant(),
-                com.nimbusds.oauth2.sdk.Scope.parse(scopeList),
+                tokenSpec == TokenSpec.EMPTY ? null : com.nimbusds.oauth2.sdk.Scope.parse(scope.getScopeList()),
                 solutionAssertion,
                 clientAssertion,
                 new CorrelationID());
@@ -315,12 +305,11 @@ class OIDCClientUtils {
 
     static OIDCTokens parseTokenResponse(
             HTTPResponse httpResponse,
-            TokenSpec tokenSpec,
             RSAPublicKey providerPublicKey,
             ClientID clientId,
-            Issuer issuer) throws OIDCClientException, TokenValidationException, OIDCServerException {
+            Issuer issuer,
+            long clockToleranceInSeconds) throws OIDCClientException, TokenValidationException, OIDCServerException {
         Validate.notNull(httpResponse, "httpResponse");
-        Validate.notNull(tokenSpec, "tokenSpec");
         Validate.notNull(providerPublicKey, "providerPublicKey");
         Validate.notNull(issuer, "issuer");
 
@@ -335,7 +324,8 @@ class OIDCClientUtils {
                         response.getIDToken().getSignedJWT(),
                         providerPublicKey,
                         clientId,
-                        issuer);
+                        issuer,
+                        clockToleranceInSeconds);
 
                 if (response.getAccessToken() != null) {
                     accessToken = new AccessToken(response.getAccessToken().getValue());
@@ -371,12 +361,19 @@ class OIDCClientUtils {
         if (tokenSpec.isRefreshTokenRequested()) {
             scopeList.add("offline_access");
         }
-        if (tokenSpec.isIdTokenGroupsRequested()) {
+
+        if (tokenSpec.idTokenGroupsRequested() == GroupMembershipType.FULL) {
             scopeList.add("id_groups");
+        } else if (tokenSpec.idTokenGroupsRequested() == GroupMembershipType.FILTERED) {
+            scopeList.add("id_groups_filtered");
         }
-        if (tokenSpec.isAccessTokenGroupsRequested()) {
+
+        if (tokenSpec.accessTokenGroupsRequested() == GroupMembershipType.FULL) {
             scopeList.add("at_groups");
+        } else if (tokenSpec.accessTokenGroupsRequested() == GroupMembershipType.FILTERED) {
+            scopeList.add("at_groups_filtered");
         }
+
         if (tokenSpec.getResouceServers() != null) {
             for (String resourceServer : tokenSpec.getResouceServers()) {
                 if (!resourceServer.startsWith("rs_")) {

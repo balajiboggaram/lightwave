@@ -115,6 +115,7 @@ import com.vmware.identity.idm.PersonUser;
 import com.vmware.identity.idm.Principal;
 import com.vmware.identity.idm.PrincipalId;
 import com.vmware.identity.idm.RelyingParty;
+import com.vmware.identity.idm.ResourceServer;
 import com.vmware.identity.idm.STSSpnValidator;
 import com.vmware.identity.idm.SearchCriteria;
 import com.vmware.identity.idm.SearchResult;
@@ -1966,6 +1967,60 @@ implements IIdentityManager
         } catch (Exception ex) {
             logger.error(String.format("Failed to get OIDC clients for tenant [%s]", tenantName));
 
+            throw ex;
+        }
+    }
+
+    private void addResourceServer(String tenantName, ResourceServer resourceServer) throws Exception {
+        try {
+            ValidateUtil.validateNotEmpty(tenantName, "tenantName");
+            ValidateUtil.validateNotNull(resourceServer, "resourceServer");
+            _configStore.addResourceServer(tenantName, resourceServer);
+        } catch (Exception ex) {
+            logger.error(String.format("Failed to add resource server for tenant [%s]", tenantName), ex);
+            throw ex;
+        }
+    }
+
+    private void deleteResourceServer(String tenantName, String resourceServerName) throws Exception {
+        try {
+            ValidateUtil.validateNotEmpty(tenantName, "tenantName");
+            ValidateUtil.validateNotEmpty(resourceServerName, "resourceServerName");
+            _configStore.deleteResourceServer(tenantName, resourceServerName);
+        } catch (Exception ex) {
+            logger.error(String.format("Failed to delete resource server [%s] for tenant [%s]", resourceServerName, tenantName), ex);
+            throw ex;
+        }
+    }
+
+    private ResourceServer getResourceServer(String tenantName, String resourceServerName) throws Exception {
+        try {
+            ValidateUtil.validateNotEmpty(tenantName, "tenantName");
+            ValidateUtil.validateNotEmpty(resourceServerName, "resourceServerName");
+            return _configStore.getResourceServer(tenantName, resourceServerName);
+        } catch (Exception ex) {
+            logger.error(String.format("Failed to get resource server [%s] for tenant [%s]", resourceServerName, tenantName), ex);
+            throw ex;
+        }
+    }
+
+    private void setResourceServer(String tenantName, ResourceServer resourceServer) throws Exception {
+        try {
+            ValidateUtil.validateNotEmpty(tenantName, "tenantName");
+            ValidateUtil.validateNotNull(resourceServer, "resourceServer");
+            _configStore.setResourceServer(tenantName, resourceServer);
+        } catch (Exception ex) {
+            logger.error(String.format("Failed to set resource server for tenant [%s]", tenantName), ex);
+            throw ex;
+        }
+    }
+
+    private Collection<ResourceServer> getResourceServers(String tenantName) throws Exception {
+        try {
+            ValidateUtil.validateNotEmpty(tenantName, "tenantName");
+            return _configStore.getResourceServers(tenantName);
+        } catch (Exception ex) {
+            logger.error(String.format("Failed to get resource servers for tenant [%s]", tenantName), ex);
             throw ex;
         }
     }
@@ -8775,6 +8830,75 @@ certPolicy);
         try (IDiagnosticsContextScope ctxt = getDiagnosticsContext(tenantName, serviceContext, "getOIDCClients")) {
             try {
                 return this.getOIDCClients(tenantName);
+            } catch (Exception ex) {
+                throw ServerUtils.getRemoteException(ex);
+            }
+        }
+    }
+
+    @Override
+    public void addResourceServer(
+            String tenantName,
+            ResourceServer resourceServer,
+            IIdmServiceContext serviceContext) throws RemoteException, IDMException {
+        try (IDiagnosticsContextScope ctxt = getDiagnosticsContext(tenantName, serviceContext, "addResourceServer")) {
+            try {
+                this.addResourceServer(tenantName, resourceServer);
+            } catch (Exception ex) {
+                throw ServerUtils.getRemoteException(ex);
+            }
+        }
+    }
+
+    @Override
+    public void deleteResourceServer(
+            String tenantName,
+            String resourceServerName,
+            IIdmServiceContext serviceContext) throws RemoteException, IDMException {
+        try (IDiagnosticsContextScope ctxt = getDiagnosticsContext(tenantName, serviceContext, "deleteResourceServer")) {
+            try {
+                this.deleteResourceServer(tenantName, resourceServerName);
+            } catch (Exception ex) {
+                throw ServerUtils.getRemoteException(ex);
+            }
+        }
+    }
+
+    @Override
+    public ResourceServer getResourceServer(
+            String tenantName,
+            String resourceServerName,
+            IIdmServiceContext serviceContext) throws RemoteException, IDMException {
+        try (IDiagnosticsContextScope ctxt = getDiagnosticsContext(tenantName, serviceContext, "getResourceServer")) {
+            try {
+                return this.getResourceServer(tenantName, resourceServerName);
+            } catch (Exception ex) {
+                throw ServerUtils.getRemoteException(ex);
+            }
+        }
+    }
+
+    @Override
+    public void setResourceServer(
+            String tenantName,
+            ResourceServer resourceServer,
+            IIdmServiceContext serviceContext) throws RemoteException, IDMException {
+        try (IDiagnosticsContextScope ctxt = getDiagnosticsContext(tenantName, serviceContext, "setResourceServer")) {
+            try {
+                this.setResourceServer(tenantName, resourceServer);
+            } catch (Exception ex) {
+                throw ServerUtils.getRemoteException(ex);
+            }
+        }
+    }
+
+    @Override
+    public Collection<ResourceServer> getResourceServers(
+            String tenantName,
+            IIdmServiceContext serviceContext) throws RemoteException, IDMException {
+        try (IDiagnosticsContextScope ctxt = getDiagnosticsContext(tenantName, serviceContext, "getResourceServers")) {
+            try {
+                return this.getResourceServers(tenantName);
             } catch (Exception ex) {
                 throw ServerUtils.getRemoteException(ex);
             }

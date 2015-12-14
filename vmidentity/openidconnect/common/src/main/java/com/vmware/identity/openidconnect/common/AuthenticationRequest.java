@@ -95,7 +95,11 @@ public class AuthenticationRequest extends com.nimbusds.openid.connect.sdk.Authe
         Validate.notNull(httpRequest, "httpRequest");
 
         Map<String, String> parameters = httpRequest.getParameters();
-        com.nimbusds.openid.connect.sdk.AuthenticationRequest nimbusAuthnRequest = com.nimbusds.openid.connect.sdk.AuthenticationRequest.parse(httpRequest.getRequestUri(), parameters);
+        com.nimbusds.openid.connect.sdk.AuthenticationRequest nimbusRequest = com.nimbusds.openid.connect.sdk.AuthenticationRequest.parse(httpRequest.getRequestUri(), parameters);
+
+        if (!CommonUtils.isValidUri(nimbusRequest.getRedirectionURI())) {
+            throw new ParseException("invalid redirect_uri");
+        }
 
         String responseModeString = parameters.get("response_mode");
         if (StringUtils.isBlank(responseModeString)) {
@@ -103,16 +107,16 @@ public class AuthenticationRequest extends com.nimbusds.openid.connect.sdk.Authe
         }
 
         ResponseMode responseMode = ResponseMode.parse(responseModeString);
-        if (responseMode.equals(ResponseMode.QUERY) && nimbusAuthnRequest.getResponseType().contains(OIDCResponseTypeValue.ID_TOKEN)) {
+        if (responseMode.equals(ResponseMode.QUERY) && nimbusRequest.getResponseType().contains(OIDCResponseTypeValue.ID_TOKEN)) {
             throw new ParseException("response_mode=query is not allowed for implicit flow");
         }
-        if (responseMode.equals(ResponseMode.FRAGMENT) && nimbusAuthnRequest.getResponseType().contains(ResponseType.Value.CODE)) {
+        if (responseMode.equals(ResponseMode.FRAGMENT) && nimbusRequest.getResponseType().contains(ResponseType.Value.CODE)) {
             throw new ParseException("response_mode=fragment is not allowed for authz code flow");
         }
 
         SignedJWT clientAssertion = null;
         String clientAssertionString = parameters.get("client_assertion");
-        if (clientAssertionString != null) {
+        if (!StringUtils.isBlank(clientAssertionString)) {
             try {
                 clientAssertion = SignedJWT.parse(clientAssertionString);
             } catch (java.text.ParseException e) {
@@ -126,23 +130,23 @@ public class AuthenticationRequest extends com.nimbusds.openid.connect.sdk.Authe
             correlationId = new CorrelationID(correlationIdString);
         }
 
-        if (nimbusAuthnRequest.getState() == null) {
+        if (nimbusRequest.getState() == null) {
             throw new ParseException("missing state parameter");
         }
 
-        if (nimbusAuthnRequest.getNonce() == null) {
+        if (nimbusRequest.getNonce() == null) {
             throw new ParseException("missing nonce parameter");
         }
 
         return new AuthenticationRequest(
-                nimbusAuthnRequest.getEndpointURI(),
-                nimbusAuthnRequest.getResponseType(),
+                nimbusRequest.getEndpointURI(),
+                nimbusRequest.getResponseType(),
                 responseMode,
-                nimbusAuthnRequest.getClientID(),
-                nimbusAuthnRequest.getRedirectionURI(),
-                nimbusAuthnRequest.getScope(),
-                nimbusAuthnRequest.getState(),
-                nimbusAuthnRequest.getNonce(),
+                nimbusRequest.getClientID(),
+                nimbusRequest.getRedirectionURI(),
+                nimbusRequest.getScope(),
+                nimbusRequest.getState(),
+                nimbusRequest.getNonce(),
                 clientAssertion,
                 correlationId);
     }

@@ -14,12 +14,29 @@
 
 package com.vmware.identity.openidconnect.server;
 
+import static com.vmware.identity.openidconnect.server.TestContext.GSS_CONTEXT_ID;
+import static com.vmware.identity.openidconnect.server.TestContext.NONCE;
+import static com.vmware.identity.openidconnect.server.TestContext.PASSWORD;
+import static com.vmware.identity.openidconnect.server.TestContext.SESSION_COOKIE_NAME;
+import static com.vmware.identity.openidconnect.server.TestContext.SESSION_ID;
+import static com.vmware.identity.openidconnect.server.TestContext.STATE;
+import static com.vmware.identity.openidconnect.server.TestContext.USERNAME;
+import static com.vmware.identity.openidconnect.server.TestContext.authnController;
+import static com.vmware.identity.openidconnect.server.TestContext.authnRequestParameters;
+import static com.vmware.identity.openidconnect.server.TestContext.gssLoginString;
+import static com.vmware.identity.openidconnect.server.TestContext.idmClient;
+import static com.vmware.identity.openidconnect.server.TestContext.idmClientBuilder;
+import static com.vmware.identity.openidconnect.server.TestContext.initialize;
+import static com.vmware.identity.openidconnect.server.TestContext.passwordLoginString;
+import static com.vmware.identity.openidconnect.server.TestContext.validateAuthnSuccessResponse;
+
 import java.util.HashMap;
 import java.util.Locale;
 import java.util.Map;
 
 import javax.servlet.http.Cookie;
 
+import org.apache.commons.lang3.tuple.Pair;
 import org.junit.Assert;
 import org.junit.BeforeClass;
 import org.junit.Test;
@@ -35,29 +52,26 @@ import com.nimbusds.oauth2.sdk.Scope;
  * @author Yehia Zayour
  */
 public class LoginTest {
-    private static final Flow FLOW = Flow.AUTHZ_CODE;
-    private static final Scope SCOPE = new Scope("openid");
-
     @BeforeClass
-    public static void initialize() throws Exception {
-        TestContext.initialize();
+    public static void setup() throws Exception {
+        initialize();
     }
 
     @Test
     public void testPasswordLogin() throws Exception {
-        String loginString = TestContext.passwordLoginString();
+        String loginString = passwordLoginString();
         assertSuccessResponse(loginString);
     }
 
     @Test
     public void testPasswordLoginIncorrectCredentials() throws Exception {
-        String loginString = TestContext.passwordLoginString(TestContext.USERNAME + "_non_matching", TestContext.PASSWORD + "_non_matching");
+        String loginString = passwordLoginString(USERNAME + "_non_matching", PASSWORD + "_non_matching");
         assertErrorResponse(loginString, 401, "Unauthorized: Incorrect username/password", null);
     }
 
     @Test
     public void testPasswordLoginInvalidLoginString() throws Exception {
-        String loginString = TestContext.passwordLoginString() + " extra";
+        String loginString = passwordLoginString() + " extra";
         assertErrorResponse(loginString, 400, "invalid_request: malformed password login string", null);
     }
 
@@ -71,28 +85,28 @@ public class LoginTest {
 
     @Test
     public void testGssLoginOneLegged() throws Exception {
-        String loginString = TestContext.gssLoginString();
+        String loginString = gssLoginString();
         assertSuccessResponse(loginString);
     }
 
     @Test
     public void testGssLoginTwoLegged() throws Exception {
-        String contextId = TestContext.GSS_CONTEXT_ID;
-        String loginString = TestContext.gssLoginString(contextId);
-        IdmClient idmClient = TestContext.idmClientBuilder().gssServerLeg(new byte[1]).build();
+        String contextId = GSS_CONTEXT_ID;
+        String loginString = gssLoginString(contextId);
+        IdmClient idmClient = idmClientBuilder().gssServerLeg(new byte[1]).build();
         assertErrorResponse(loginString, 401, "Unauthorized: continue Negotiate required", "Negotiate " + contextId, idmClient);
     }
 
     @Test
     public void testGssLoginInvalidTicket() throws Exception {
-        String contextId = TestContext.GSS_CONTEXT_ID + "non_matching";
-        String loginString = TestContext.gssLoginString(contextId);
+        String contextId = GSS_CONTEXT_ID + "non_matching";
+        String loginString = gssLoginString(contextId);
         assertErrorResponse(loginString, 401, "Unauthorized: invalid gss token", null);
     }
 
     @Test
     public void testGssLoginInvalidLoginString() throws Exception {
-        String loginString = TestContext.gssLoginString() + " extra";
+        String loginString = gssLoginString() + " extra";
         assertErrorResponse(loginString, 400, "invalid_request: malformed gss login string", null);
     }
 
@@ -104,32 +118,59 @@ public class LoginTest {
 
     @Test
     public void testSessionLogin() throws Exception {
-        Cookie sessionCookie = new Cookie(TestContext.SESSION_COOKIE_NAME, TestContext.SESSION_ID);
-        Object[] result = doRequest(null /* loginString */, sessionCookie);
-        ModelAndView modelView = (ModelAndView) result[0];
-        MockHttpServletResponse response = (MockHttpServletResponse) result[1];
+        Cookie sessionCookie = new Cookie(SESSION_COOKIE_NAME, SESSION_ID);
+        Pair<ModelAndView, MockHttpServletResponse> result = doRequest(null /* loginString */, sessionCookie);
+        ModelAndView modelView = result.getLeft();
+        MockHttpServletResponse response = result.getRight();
         Assert.assertNull("modelView", modelView);
-        Assert.assertNull("sessionCookie", response.getCookie(TestContext.SESSION_COOKIE_NAME));
-        TestContext.validateAuthnSuccessResponse(FLOW, response, SCOPE);
+        Assert.assertNull("sessionCookie", response.getCookie(SESSION_COOKIE_NAME));
+        validateAuthnSuccessResponse(response, Flow.AUTHZ_CODE, new Scope("openid"), false, false, STATE, NONCE);
+    }
+
+    @Test
+    public void testLoginStringWithSessionCookieMatching() throws Exception {
+        // if request has both a loginString and session cookie, then if the session cookie matches, use it and ignore the loginString
+        String loginString = passwordLoginString();
+        Cookie sessionCookie = new Cookie(SESSION_COOKIE_NAME, SESSION_ID);
+        Pair<ModelAndView, MockHttpServletResponse> result = doRequest(loginString, sessionCookie);
+        ModelAndView modelView = result.getLeft();
+        MockHttpServletResponse response = result.getRight();
+        Assert.assertNull("modelView", modelView);
+        Assert.assertNull("sessionCookie", response.getCookie(SESSION_COOKIE_NAME)); // no new session cookie is returned
+        boolean ajaxRequest = false; // it is actually an ajax request but then TestContext would expect a session cookie to be returned
+        validateAuthnSuccessResponse(response, Flow.AUTHZ_CODE, new Scope("openid"), false, ajaxRequest, STATE, NONCE);
+    }
+
+    @Test
+    public void testLoginStringWithSessionCookieNonMatching() throws Exception {
+        // if request has both a loginString and session cookie, then if the session cookie does not match, process the loginString
+        String loginString = passwordLoginString();
+        Cookie nonMatchingsessionCookie = new Cookie(SESSION_COOKIE_NAME, SESSION_ID + "_nonmatching");
+        Pair<ModelAndView, MockHttpServletResponse> result = doRequest(loginString, nonMatchingsessionCookie);
+        ModelAndView modelView = result.getLeft();
+        MockHttpServletResponse response = result.getRight();
+        Assert.assertNull("modelView", modelView);
+        Assert.assertNotNull("sessionCookie", response.getCookie(SESSION_COOKIE_NAME)); // new session cookie is returned
+        validateAuthnSuccessResponse(response, Flow.AUTHZ_CODE, new Scope("openid"), false, true, STATE, NONCE);
     }
 
     @Test
     public void testMissingLogin() throws Exception {
-        Object[] result = doRequest(null /* loginString */, null /* sessionCookie */);
-        ModelAndView modelView = (ModelAndView) result[0];
-        MockHttpServletResponse response = (MockHttpServletResponse) result[1];
+        Pair<ModelAndView, MockHttpServletResponse> result = doRequest(null /* loginString */, null /* sessionCookie */);
+        ModelAndView modelView = result.getLeft();
+        MockHttpServletResponse response = result.getRight();
         Assert.assertNotNull("modelView", modelView); // logon form should be served
-        Assert.assertNull("sessionCookie", response.getCookie(TestContext.SESSION_COOKIE_NAME));
+        Assert.assertNull("sessionCookie", response.getCookie(SESSION_COOKIE_NAME));
         Assert.assertEquals("status", 200, response.getStatus());
     }
 
     private static void assertSuccessResponse(String loginString) throws Exception {
-        Object[] result = doRequest(loginString, null /* sessionCookie */);
-        ModelAndView modelView = (ModelAndView) result[0];
-        MockHttpServletResponse response = (MockHttpServletResponse) result[1];
+        Pair<ModelAndView, MockHttpServletResponse> result = doRequest(loginString, null /* sessionCookie */);
+        ModelAndView modelView = result.getLeft();
+        MockHttpServletResponse response = result.getRight();
         Assert.assertNull("modelView", modelView);
-        Assert.assertNotNull("sessionCookie", response.getCookie(TestContext.SESSION_COOKIE_NAME));
-        TestContext.validateAuthnSuccessResponse(FLOW, response, SCOPE, TestContext.STATE, TestContext.NONCE, false, true);
+        Assert.assertNotNull("sessionCookie", response.getCookie(SESSION_COOKIE_NAME));
+        validateAuthnSuccessResponse(response, Flow.AUTHZ_CODE, new Scope("openid"), false, true, STATE, NONCE);
     }
 
     private static void assertErrorResponse(
@@ -137,7 +178,7 @@ public class LoginTest {
             int expectedStatusCode,
             String expectedError,
             String expectedAuthzResponseHeaderPrefix) throws Exception {
-        assertErrorResponse(loginString, expectedStatusCode, expectedError, expectedAuthzResponseHeaderPrefix, TestContext.idmClient());
+        assertErrorResponse(loginString, expectedStatusCode, expectedError, expectedAuthzResponseHeaderPrefix, idmClient());
     }
 
     private static void assertErrorResponse(
@@ -146,11 +187,11 @@ public class LoginTest {
             String expectedError,
             String expectedAuthzResponseHeaderPrefix,
             IdmClient idmClient) throws Exception {
-        Object[] result = doRequest(loginString, null /* sessionCookie */, idmClient);
-        ModelAndView modelView = (ModelAndView) result[0];
-        MockHttpServletResponse response = (MockHttpServletResponse) result[1];
+        Pair<ModelAndView, MockHttpServletResponse> result = doRequest(loginString, null /* sessionCookie */, idmClient);
+        ModelAndView modelView = result.getLeft();
+        MockHttpServletResponse response = result.getRight();
         Assert.assertNull("modelView", modelView);
-        Assert.assertNull("sessionCookie", response.getCookie(TestContext.SESSION_COOKIE_NAME));
+        Assert.assertNull("sessionCookie", response.getCookie(SESSION_COOKIE_NAME));
         Assert.assertEquals("status", expectedStatusCode, response.getStatus());
         Object errorResponseHeader = response.getHeader("CastleError");
         Assert.assertNotNull("errorResponseHeader", errorResponseHeader);
@@ -165,17 +206,17 @@ public class LoginTest {
         }
     }
 
-    private static Object[] doRequest(
+    private static Pair<ModelAndView, MockHttpServletResponse> doRequest(
             String loginString,
             Cookie sessionCookie) throws Exception {
-        return doRequest(loginString, sessionCookie, TestContext.idmClient());
+        return doRequest(loginString, sessionCookie, idmClient());
     }
 
-    private static Object[] doRequest(
+    private static Pair<ModelAndView, MockHttpServletResponse> doRequest(
             String loginString,
             Cookie sessionCookie,
             IdmClient idmClient) throws Exception {
-        Map<String, String> queryParams = TestContext.authnRequestParameters(FLOW);
+        Map<String, String> queryParams = authnRequestParameters(Flow.AUTHZ_CODE);
 
         MockHttpServletRequest request;
         if (loginString != null) {
@@ -184,14 +225,14 @@ public class LoginTest {
             request = TestUtil.createPostRequestWithQueryString(formParams, queryParams);
         } else {
             request = TestUtil.createGetRequest(queryParams);
-            if (sessionCookie != null) {
-                request.setCookies(sessionCookie);
-            }
+        }
+        if (sessionCookie != null) {
+            request.setCookies(sessionCookie);
         }
 
         MockHttpServletResponse response = new MockHttpServletResponse();
-        AuthorizationController authzEndpoint = TestContext.authzController(idmClient);
-        ModelAndView modelView = authzEndpoint.authorize(new ExtendedModelMap(), Locale.ENGLISH, request, response);
-        return new Object[] { modelView, response };
+        AuthenticationController controller = authnController(idmClient);
+        ModelAndView modelView = controller.authenticate(new ExtendedModelMap(), Locale.ENGLISH, request, response);
+        return Pair.of(modelView, response);
     }
 }

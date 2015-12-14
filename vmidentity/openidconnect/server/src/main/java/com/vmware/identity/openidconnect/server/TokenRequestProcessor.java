@@ -17,6 +17,7 @@ package com.vmware.identity.openidconnect.server;
 import java.net.URI;
 import java.util.Date;
 import java.util.Objects;
+import java.util.Set;
 
 import org.apache.commons.lang3.StringUtils;
 
@@ -42,7 +43,6 @@ import com.nimbusds.oauth2.sdk.token.AccessToken;
 import com.nimbusds.oauth2.sdk.token.RefreshToken;
 import com.nimbusds.openid.connect.sdk.Nonce;
 import com.nimbusds.openid.connect.sdk.OIDCScopeValue;
-import com.nimbusds.openid.connect.sdk.rp.OIDCClientInformation;
 import com.vmware.identity.diagnostics.DiagnosticsLoggerFactory;
 import com.vmware.identity.diagnostics.IDiagnosticsLogger;
 import com.vmware.identity.idm.GSSResult;
@@ -52,6 +52,7 @@ import com.vmware.identity.openidconnect.common.HttpRequest;
 import com.vmware.identity.openidconnect.common.IDToken;
 import com.vmware.identity.openidconnect.common.SessionID;
 import com.vmware.identity.openidconnect.common.SolutionUserCredentialsGrant;
+import com.vmware.identity.openidconnect.common.TokenClass;
 import com.vmware.identity.openidconnect.common.TokenErrorResponse;
 import com.vmware.identity.openidconnect.common.TokenRequest;
 import com.vmware.identity.openidconnect.common.TokenSuccessResponse;
@@ -60,10 +61,13 @@ import com.vmware.identity.openidconnect.common.TokenSuccessResponse;
  * @author Yehia Zayour
  */
 public class TokenRequestProcessor {
+    private static final long REQUEST_LIFETIME_MS   = 1 * 60 * 1000L; // 1 minute
+
     private static final IDiagnosticsLogger logger = DiagnosticsLoggerFactory.getLogger(TokenRequestProcessor.class);
 
     private final TenantInfoRetriever tenantInfoRetriever;
     private final ClientInfoRetriever clientInfoRetriever;
+    private final ServerInfoRetriever serverInfoRetriever;
     private final UserInfoRetriever userInfoRetriever;
     private final PersonUserAuthenticator personUserAuthenticator;
     private final SolutionUserAuthenticator solutionUserAuthenticator;
@@ -72,8 +76,7 @@ public class TokenRequestProcessor {
     private final HttpRequest httpRequest;
     private final String tenant;
 
-    private TenantInformation tenantInfo;
-    private OIDCClientInformation clientInfo;
+    private TenantInfo tenantInfo;
     private TokenRequest tokenRequest;
 
     public TokenRequestProcessor(
@@ -83,6 +86,7 @@ public class TokenRequestProcessor {
             String tenant) {
         this.tenantInfoRetriever = new TenantInfoRetriever(idmClient);
         this.clientInfoRetriever = new ClientInfoRetriever(idmClient);
+        this.serverInfoRetriever = new ServerInfoRetriever(idmClient);
         this.userInfoRetriever = new UserInfoRetriever(idmClient);
         this.personUserAuthenticator = new PersonUserAuthenticator(idmClient);
         this.solutionUserAuthenticator = new SolutionUserAuthenticator(idmClient);
@@ -93,7 +97,6 @@ public class TokenRequestProcessor {
 
         // set by initialize()
         this.tenantInfo = null;
-        this.clientInfo = null;
         this.tokenRequest = null;
     }
 
@@ -128,10 +131,6 @@ public class TokenRequestProcessor {
             tenantName = this.tenantInfoRetriever.getDefaultTenantName();
         }
         this.tenantInfo = this.tenantInfoRetriever.retrieveTenantInfo(tenantName);
-
-        if (this.tokenRequest.getClientID() != null) {
-            this.clientInfo = this.clientInfoRetriever.retrieveClientInfo(tenantName, this.tokenRequest.getClientID());
-        }
     }
 
     private TokenSuccessResponse processInternal() throws ServerException {
@@ -140,14 +139,17 @@ public class TokenRequestProcessor {
         SolutionUser solutionUser = null;
         try {
             if (this.tokenRequest.getClientAssertion() != null) {
+                ClientInfo clientInfo = this.clientInfoRetriever.retrieveClientInfo(this.tenantInfo.getName(), this.tokenRequest.getClientID());
                 solutionUser = this.solutionUserAuthenticator.authenticateByClientAssertion(
                         this.tokenRequest.getClientAssertion(),
+                        REQUEST_LIFETIME_MS,
                         this.httpRequest.getRequestUrl(),
                         this.tenantInfo,
-                        this.clientInfo);
+                        clientInfo);
             } else if (this.tokenRequest.getSolutionAssertion() != null) {
                 solutionUser = this.solutionUserAuthenticator.authenticateBySolutionAssertion(
                         this.tokenRequest.getSolutionAssertion(),
+                        REQUEST_LIFETIME_MS,
                         this.httpRequest.getRequestUrl(),
                         this.tenantInfo);
             }
@@ -161,17 +163,17 @@ public class TokenRequestProcessor {
         }
 
         TokenSuccessResponse tokenSuccessResponse;
-        if (grantType.equals(GrantType.AUTHORIZATION_CODE)) {
+        if (grantType.equals(AuthorizationCodeGrant.GRANT_TYPE)) {
             tokenSuccessResponse = processAuthzCodeGrant(solutionUser);
-        } else if (grantType.equals(GrantType.PASSWORD)) {
+        } else if (grantType.equals(ResourceOwnerPasswordCredentialsGrant.GRANT_TYPE)) {
             tokenSuccessResponse = processPasswordCredentialsGrant(solutionUser);
-        } else if (grantType.equals(GrantType.CLIENT_CREDENTIALS)) {
+        } else if (grantType.equals(ClientCredentialsGrant.GRANT_TYPE)) {
             tokenSuccessResponse = processClientCredentialsGrant(solutionUser);
         } else if (grantType.equals(SolutionUserCredentialsGrant.GRANT_TYPE)) {
             tokenSuccessResponse = processSolutionUserCredentialsGrant(solutionUser);
         } else if (grantType.equals(GssTicketGrant.GRANT_TYPE)) {
             tokenSuccessResponse = processGssTicketGrant(solutionUser);
-        } else if (grantType.equals(GrantType.REFRESH_TOKEN)) {
+        } else if (grantType.equals(RefreshTokenGrant.GRANT_TYPE)) {
             tokenSuccessResponse = processRefreshTokenGrant(solutionUser);
         } else {
             throw new IllegalStateException("unexpected grant_type: " + grantType);
@@ -184,7 +186,7 @@ public class TokenRequestProcessor {
         AuthorizationCode authzCode = authzCodeGrant.getAuthorizationCode();
         URI redirectUri = authzCodeGrant.getRedirectionURI();
 
-        AuthorizationCodeEntry entry = this.authzCodeManager.remove(authzCode);
+        AuthorizationCodeManager.Entry entry = this.authzCodeManager.remove(authzCode);
         ErrorObject error = validateAuthzCode(entry, redirectUri);
         if (error != null) {
             throw new ServerException(error);
@@ -193,9 +195,9 @@ public class TokenRequestProcessor {
         return process(
                 entry.getPersonUser(),
                 solutionUser,
-                entry.getAuthnRequest().getClientID(),
-                entry.getAuthnRequest().getScope(),
-                entry.getAuthnRequest().getNonce(),
+                entry.getAuthenticationRequest().getClientID(),
+                entry.getAuthenticationRequest().getScope(),
+                entry.getAuthenticationRequest().getNonce(),
                 entry.getSessionId(),
                 true /* refreshTokenAllowed */);
     }
@@ -207,8 +209,8 @@ public class TokenRequestProcessor {
                 solutionUser,
                 this.tokenRequest.getClientID(),
                 this.tokenRequest.getScope(),
-                null /* nonce */,
-                null /* sessionId*/,
+                (Nonce) null,
+                (SessionID) null,
                 false /* refreshTokenAllowed */);
     }
 
@@ -219,8 +221,8 @@ public class TokenRequestProcessor {
                 solutionUser,
                 this.tokenRequest.getClientID(),
                 this.tokenRequest.getScope(),
-                null /* nonce */,
-                null /* sessionId*/,
+                (Nonce) null,
+                (SessionID) null,
                 false /* refreshTokenAllowed */);
     }
 
@@ -241,8 +243,8 @@ public class TokenRequestProcessor {
                 solutionUser,
                 this.tokenRequest.getClientID(),
                 this.tokenRequest.getScope(),
-                null /* nonce */,
-                null /* sessionId */,
+                (Nonce) null,
+                (SessionID) null,
                 true /* refreshTokenAllowed */);
     }
 
@@ -272,8 +274,8 @@ public class TokenRequestProcessor {
                 solutionUser,
                 this.tokenRequest.getClientID(),
                 this.tokenRequest.getScope(),
-                null /* nonce */,
-                null /* sessionId*/,
+                (Nonce) null,
+                (SessionID) null,
                 true /* refreshTokenAllowed */);
     }
 
@@ -285,7 +287,7 @@ public class TokenRequestProcessor {
         try {
             signedJwt = SignedJWT.parse(refreshToken.getValue());
         } catch (java.text.ParseException e) {
-            throw new ServerException(OAuth2Error.INVALID_GRANT.setDescription("failed to parse SignedJWT out of refresh_token: " + e.getMessage()), e);
+            throw new ServerException(OAuth2Error.INVALID_GRANT.setDescription("failed to parse SignedJWT out of refresh_token"), e);
         }
 
         boolean validSignature;
@@ -295,17 +297,17 @@ public class TokenRequestProcessor {
             throw new ServerException(OAuth2Error.INVALID_GRANT.setDescription("error while verifying refresh_token signature"), e);
         }
         if (!validSignature) {
-            throw new ServerException(OAuth2Error.INVALID_GRANT.setDescription("jwt has an invalid signature"));
+            throw new ServerException(OAuth2Error.INVALID_GRANT.setDescription("refresh_token has an invalid signature"));
         }
 
         ReadOnlyJWTClaimsSet claimsSet;
         try {
             claimsSet = signedJwt.getJWTClaimsSet();
         } catch (java.text.ParseException e) {
-            throw new ServerException(OAuth2Error.INVALID_GRANT.setDescription("failed to parse ClaimsSet out of refresh_token: " + e.getMessage()), e);
+            throw new ServerException(OAuth2Error.INVALID_GRANT.setDescription("failed to parse claims out of refresh_token"), e);
         }
 
-        ErrorObject error = validateRefreshToken(claimsSet, solutionUser);
+        ErrorObject error = validateRefreshTokenClaims(claimsSet, solutionUser);
         if (error != null) {
             throw new ServerException(error);
         }
@@ -318,7 +320,7 @@ public class TokenRequestProcessor {
             clientIdString  = claimsSet.getStringClaim("client_id");
             sessionIdString = claimsSet.getStringClaim("sid");
         } catch (java.text.ParseException e) {
-            throw new ServerException(OAuth2Error.INVALID_GRANT.setDescription("failed to parse claims out of refresh_token: " + e.getMessage()), e);
+            throw new ServerException(OAuth2Error.INVALID_GRANT.setDescription("refresh_token claims have incorrect type"), e);
         }
 
         PersonUser personUser;
@@ -347,43 +349,31 @@ public class TokenRequestProcessor {
             SessionID sessionId,
             boolean refreshTokenAllowed) throws ServerException {
         User user = (personUser != null) ? personUser : solutionUser;
-        UserInformation userInfo = this.userInfoRetriever.retrieveUserInfo(user, scope);
+        Set<ResourceServerInfo> resourceServerInfos = this.serverInfoRetriever.retrieveResourceServerInfos(this.tenantInfo.getName(), scope);
+        UserInfo userInfo = this.userInfoRetriever.retrieveUserInfo(user, scope, resourceServerInfos);
 
         if (personUser != null && solutionUser != null) {
-            boolean isMemberOfActAsGroup = this.userInfoRetriever.isMemberOfActAsGroup(solutionUser);
+            boolean isMemberOfActAsGroup = this.userInfoRetriever.isMemberOfGroup(solutionUser, "ActAsUsers");
             if (!isMemberOfActAsGroup) {
                 throw new ServerException(OAuth2Error.ACCESS_DENIED.setDescription("solution user acting as a person user must be a member of ActAsUsers group"));
             }
         }
 
-        IDToken idToken = TokenIssuer.issueIdToken(
+        TokenIssuer tokenIssuer = new TokenIssuer(
                 personUser,
                 solutionUser,
                 userInfo,
                 this.tenantInfo,
-                clientId,
                 scope,
                 nonce,
+                clientId,
                 sessionId);
 
-        AccessToken accessToken = TokenIssuer.issueAccessToken(
-                personUser,
-                solutionUser,
-                userInfo,
-                this.tenantInfo,
-                clientId,
-                scope,
-                nonce);
-
+        IDToken idToken = tokenIssuer.issueIdToken();
+        AccessToken accessToken = tokenIssuer.issueAccessToken();
         RefreshToken refreshToken = null;
         if (refreshTokenAllowed && scope.contains(OIDCScopeValue.OFFLINE_ACCESS)) {
-            refreshToken = TokenIssuer.issueRefreshToken(
-                    personUser,
-                    solutionUser,
-                    this.tenantInfo,
-                    clientId,
-                    scope,
-                    sessionId);
+            refreshToken = tokenIssuer.issueRefreshToken();
         }
 
         return new TokenSuccessResponse(idToken, accessToken, refreshToken);
@@ -394,37 +384,24 @@ public class TokenRequestProcessor {
 
         GrantType grantType = this.tokenRequest.getAuthorizationGrant().getType();
         boolean grantTypeSupported =
-                (grantType.equals(GrantType.AUTHORIZATION_CODE)) ||
-                (grantType.equals(GrantType.PASSWORD)) ||
-                (grantType.equals(GrantType.CLIENT_CREDENTIALS)) ||
+                (grantType.equals(AuthorizationCodeGrant.GRANT_TYPE)) ||
+                (grantType.equals(ResourceOwnerPasswordCredentialsGrant.GRANT_TYPE)) ||
+                (grantType.equals(ClientCredentialsGrant.GRANT_TYPE)) ||
                 (grantType.equals(SolutionUserCredentialsGrant.GRANT_TYPE)) ||
                 (grantType.equals(GssTicketGrant.GRANT_TYPE)) ||
-                (grantType.equals(GrantType.REFRESH_TOKEN));
+                (grantType.equals(RefreshTokenGrant.GRANT_TYPE));
         if (!grantTypeSupported) {
             error = OAuth2Error.UNSUPPORTED_GRANT_TYPE;
         }
 
-        Scope scope = this.tokenRequest.getScope();
-        if (error == null &&
-                (grantType.equals(ResourceOwnerPasswordCredentialsGrant.GRANT_TYPE) ||
-                 grantType.equals(ClientCredentialsGrant.GRANT_TYPE) ||
-                 grantType.equals(SolutionUserCredentialsGrant.GRANT_TYPE) ||
-                 grantType.equals(GssTicketGrant.GRANT_TYPE))) {
-            error = Shared.validateScope(scope, grantType);
-        }
-
-        if (error == null && grantType.equals(GrantType.AUTHORIZATION_CODE) && scope != null) {
-            error = OAuth2Error.INVALID_REQUEST.setDescription("scope parameter is not allowed in token request for authz code flow");
-        }
-
-        if (error == null && grantType.equals(GrantType.REFRESH_TOKEN) && scope != null) {
-            error = OAuth2Error.INVALID_REQUEST.setDescription("scope parameter is not allowed in token request for refresh token flow");
+        if (error == null && this.tokenRequest.getScope() != null) {
+            error = CommonValidator.validateScope(this.tokenRequest.getScope(), grantType);
         }
 
         return error;
     }
 
-    private ErrorObject validateAuthzCode(AuthorizationCodeEntry entry, URI tokenRequestRedirectUri) {
+    private ErrorObject validateAuthzCode(AuthorizationCodeManager.Entry entry, URI tokenRequestRedirectUri) {
         String error = null;
 
         if (entry == null) {
@@ -433,7 +410,7 @@ public class TokenRequestProcessor {
 
         if (error == null) {
             // in authz code flow, the client_id and redirect_uri in the token request must match those in the original authn request
-            AuthenticationRequest originalAuthnRequest = entry.getAuthnRequest();
+            AuthenticationRequest originalAuthnRequest = entry.getAuthenticationRequest();
             if (!originalAuthnRequest.getClientID().equals(this.tokenRequest.getClientID())) {
                 error = "client_id does not match that of the original authn request";
             } else if (!originalAuthnRequest.getRedirectionURI().equals(tokenRequestRedirectUri)) {
@@ -448,44 +425,34 @@ public class TokenRequestProcessor {
         return (error == null) ? null : OAuth2Error.INVALID_GRANT.setDescription(error);
     }
 
-    private ErrorObject validateRefreshToken(ReadOnlyJWTClaimsSet claimsSet, SolutionUser solutionUser) {
-        String error = null;
+    private ErrorObject validateRefreshTokenClaims(ReadOnlyJWTClaimsSet claimsSet, SolutionUser solutionUser) {
+        ErrorObject claimsError  = CommonValidator.validateBaseJwtClaims(claimsSet, TokenClass.REFRESH_TOKEN);
+        String error = (claimsError == null) ? null : claimsError.getDescription();
 
-        String tokenClass = null;
         String scope      = null;
         String actAs      = null;
         String clientId   = null;
         String tenant     = null;
-        try {
-            tokenClass  = claimsSet.getStringClaim("token_class");
-            scope       = claimsSet.getStringClaim("scope");
-            actAs       = claimsSet.getStringClaim("act_as");
-            clientId    = claimsSet.getStringClaim("client_id");
-            tenant      = claimsSet.getStringClaim("tenant");
-        } catch (java.text.ParseException e) {
-            error = "failed to parse claims out of jwt";
-        }
-
-        if (error == null && !("refresh_token").equals(tokenClass)) {
-            error = "jwt is missing a token_class=refresh_token claim";
-        }
-
-        if (error == null && StringUtils.isEmpty(claimsSet.getSubject())) {
-            error = "jwt is missing sub (subject) claim";
-        }
-
-        Date expirationTime = claimsSet.getExpirationTime();
-        if (error == null && expirationTime == null) {
-            error = "jwt is missing exp (expiration) claim";
-        }
-
-        Date now = new Date();
-        if (error == null && expirationTime.before(now)) {
-            error = "jwt has expired";
+        if (error == null) {
+            try {
+                scope       = claimsSet.getStringClaim("scope");
+                actAs       = claimsSet.getStringClaim("act_as");
+                clientId    = claimsSet.getStringClaim("client_id");
+                tenant      = claimsSet.getStringClaim("tenant");
+            } catch (java.text.ParseException e) {
+                error = "refresh_token claims have incorrect type";
+            }
         }
 
         if (error == null && StringUtils.isEmpty(scope)) {
-            error = "jwt is missing scope claim";
+            error = "refresh_token is missing scope claim";
+        }
+
+        if (error == null) {
+            ErrorObject scopeError = CommonValidator.validateScope(Scope.parse(scope), RefreshTokenGrant.GRANT_TYPE);
+            if (scopeError != null) {
+                error = scopeError.getDescription();
+            }
         }
 
         if (error == null && !this.tenantInfo.getName().equals(tenant)) {
@@ -500,6 +467,14 @@ public class TokenRequestProcessor {
         String expectedActAs = (solutionUser == null) ? null : solutionUser.getSubject().getValue();
         if (error == null && !Objects.equals(actAs, expectedActAs)) {
             error = "refresh_token was not issued to this solution user";
+        }
+
+        if (error == null) {
+            Date now = new Date();
+            Date adjustedExpirationTime = new Date(claimsSet.getExpirationTime().getTime() + this.tenantInfo.getClockToleranceMs());
+            if (now.after(adjustedExpirationTime)) {
+                error = "refresh_token has expired";
+            }
         }
 
         return (error == null) ? null : OAuth2Error.INVALID_GRANT.setDescription(error);

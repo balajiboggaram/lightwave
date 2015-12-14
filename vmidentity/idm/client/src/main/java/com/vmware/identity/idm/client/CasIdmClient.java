@@ -96,6 +96,7 @@ import com.vmware.identity.idm.PersonUser;
 import com.vmware.identity.idm.Principal;
 import com.vmware.identity.idm.PrincipalId;
 import com.vmware.identity.idm.RelyingParty;
+import com.vmware.identity.idm.ResourceServer;
 import com.vmware.identity.idm.SearchCriteria;
 import com.vmware.identity.idm.SearchResult;
 import com.vmware.identity.idm.SecurityDomain;
@@ -557,6 +558,26 @@ public class CasIdmClient
      */
     public Collection<OIDCClient> getOIDCClients(String tenantName) throws Exception {
         return getService().getOIDCClients(tenantName, this.getServiceContext());
+    }
+
+    public void addResourceServer(String tenantName, ResourceServer resourceServer) throws Exception {
+        getService().addResourceServer(tenantName, resourceServer, this.getServiceContext());
+    }
+
+    public void deleteResourceServer(String tenantName, String resourceServerName) throws Exception {
+        getService().deleteResourceServer(tenantName, resourceServerName, this.getServiceContext());
+    }
+
+    public ResourceServer getResourceServer(String tenantName, String resourceServerName) throws Exception {
+        return getService().getResourceServer(tenantName, resourceServerName, this.getServiceContext());
+    }
+
+    public void setResourceServer(String tenantName, ResourceServer resourceServer) throws Exception {
+        getService().setResourceServer(tenantName, resourceServer, this.getServiceContext());
+    }
+
+    public Collection<ResourceServer> getResourceServers(String tenantName) throws Exception {
+        return getService().getResourceServers(tenantName, this.getServiceContext());
     }
 
     /**

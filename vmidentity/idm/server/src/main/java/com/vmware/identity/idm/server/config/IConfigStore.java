@@ -32,6 +32,7 @@ import com.vmware.identity.idm.IIdentityStoreData;
 import com.vmware.identity.idm.OIDCClient;
 import com.vmware.identity.idm.PasswordExpiration;
 import com.vmware.identity.idm.RelyingParty;
+import com.vmware.identity.idm.ResourceServer;
 import com.vmware.identity.idm.Tenant;
 import com.vmware.identity.idm.server.config.directory.TenantAttributes;
 
@@ -263,6 +264,19 @@ public interface IConfigStore
     public void setOIDCClient(String tenantName, OIDCClient oidcClient) throws Exception;
 
     public Collection<OIDCClient> getOIDCClients(String tenantName) throws Exception;
+
+    /*
+     *  Resource Server
+     */
+    public void addResourceServer(String tenantName, ResourceServer resourceServer) throws Exception;
+
+    public void deleteResourceServer(String tenantName, String resourceServerName) throws Exception;
+
+    public ResourceServer getResourceServer(String tenantName, String resourceServerName) throws Exception;
+
+    public void setResourceServer(String tenantName, ResourceServer resourceServer) throws Exception;
+
+    public Collection<ResourceServer> getResourceServers(String tenantName) throws Exception;
 
     /*
      *  IdentityProvider

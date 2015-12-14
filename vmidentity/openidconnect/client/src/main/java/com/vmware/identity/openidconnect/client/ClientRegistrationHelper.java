@@ -38,6 +38,8 @@ import com.nimbusds.oauth2.sdk.http.HTTPResponse;
  *
  * @author Jun Sun
  */
+
+@Deprecated
 public class ClientRegistrationHelper {
     private final URL restAdminOIDCClientURL;
     private final KeyStore keyStore;

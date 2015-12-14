@@ -82,10 +82,12 @@ import com.vmware.identity.idm.NoSuchExternalIdpConfigException;
 import com.vmware.identity.idm.NoSuchIdpException;
 import com.vmware.identity.idm.NoSuchOIDCClientException;
 import com.vmware.identity.idm.NoSuchRelyingPartyException;
+import com.vmware.identity.idm.NoSuchResourceServerException;
 import com.vmware.identity.idm.NoSuchTenantException;
 import com.vmware.identity.idm.OIDCClient;
 import com.vmware.identity.idm.PasswordExpiration;
 import com.vmware.identity.idm.RelyingParty;
+import com.vmware.identity.idm.ResourceServer;
 import com.vmware.identity.idm.ServiceEndpoint;
 import com.vmware.identity.idm.SignatureAlgorithm;
 import com.vmware.identity.idm.Tenant;
@@ -2084,6 +2086,122 @@ public class DirectoryConfigStore implements IConfigStore
             return DirectoryConfigStore.getOIDCClients(this, connection, tenantName, null);
         } finally {
             connection.close();
+        }
+    }
+
+    @Override
+    public void addResourceServer(String tenantName, ResourceServer resourceServer) throws Exception {
+        ValidateUtil.validateNotEmpty(tenantName, "tenantName");
+        ValidateUtil.validateNotNull(resourceServer, "resourceServer");
+
+        try (ILdapConnectionEx connection = this.getConnection()) {
+            String tenantsRootDn = this.ensureTenantExists(connection, tenantName);
+            ContainerLdapObject resourceServersContainer = ContainerLdapObject.getInstance();
+            String resourceServersContainerDn = DirectoryConfigStore.ensureObjectExists(
+                    connection,
+                    tenantsRootDn,
+                    resourceServersContainer,
+                    ContainerLdapObject.CONTAINER_RESOURCE_SERVERS,
+                    true /* createIfNotExists */);
+            ResourceServerLdapObject resourceServerLdapObject = ResourceServerLdapObject.getInstance();
+            String resourceServerDn = resourceServerLdapObject.getDnFromObject(resourceServersContainerDn, resourceServer);
+            resourceServerLdapObject.createObject(connection, resourceServerDn, resourceServer);
+        }
+    }
+
+    @Override
+    public void deleteResourceServer(String tenantName, String resourceServerName) throws Exception {
+        ValidateUtil.validateNotEmpty(tenantName, "tenantName");
+        ValidateUtil.validateNotEmpty(resourceServerName, "resourceServerName");
+
+        try (ILdapConnectionEx connection = this.getConnection()) {
+            boolean found = false;
+
+            String tenantsRootDn = this.ensureTenantExists(connection, tenantName);
+            ContainerLdapObject resourceServersContainer = ContainerLdapObject.getInstance();
+            String resourceServersContainerDn = DirectoryConfigStore.ensureObjectExists(
+                    connection,
+                    tenantsRootDn,
+                    resourceServersContainer,
+                    ContainerLdapObject.CONTAINER_RESOURCE_SERVERS,
+                    false /* createIfNotExists */);
+
+            if (!ServerUtils.isNullOrEmpty(resourceServersContainerDn)) {
+                ResourceServerLdapObject resourceServerLdapObject = ResourceServerLdapObject.getInstance();
+                String resourceServerDn = resourceServerLdapObject.lookupObject(
+                        connection,
+                        resourceServersContainerDn,
+                        LdapScope.SCOPE_ONE_LEVEL,
+                        resourceServerName);
+                if (!ServerUtils.isNullOrEmpty(resourceServerDn)) {
+                    found = true;
+                    resourceServerLdapObject.deleteObject(connection, resourceServerDn);
+                }
+            }
+
+            if (!found) {
+                throw new NoSuchResourceServerException(String.format("The resource server %s does not exist on tenant %s", resourceServerName, tenantName));
+            }
+        }
+    }
+
+    @Override
+    public ResourceServer getResourceServer(String tenantName, String resourceServerName) throws Exception {
+        ValidateUtil.validateNotEmpty(tenantName, "tenantName");
+        ValidateUtil.validateNotEmpty(resourceServerName, "resourceServerName");
+
+        try (ILdapConnectionEx connection = this.getConnection()) {
+            String tenantsRootDn = this.ensureTenantExists(connection, tenantName);
+            ContainerLdapObject resourceServersContainer = ContainerLdapObject.getInstance();
+            String resourceServersContainerDn = DirectoryConfigStore.ensureObjectExists(
+                    connection,
+                    tenantsRootDn,
+                    resourceServersContainer,
+                    ContainerLdapObject.CONTAINER_RESOURCE_SERVERS,
+                    false /* createIfNotExists */);
+
+            ResourceServer resourceServer = null;
+            if (!ServerUtils.isNullOrEmpty(resourceServersContainerDn)) {
+                ResourceServerLdapObject resourceServerLdapObject = ResourceServerLdapObject.getInstance();
+                resourceServer = resourceServerLdapObject.retrieveObject(
+                        connection,
+                        resourceServersContainerDn,
+                        LdapScope.SCOPE_ONE_LEVEL,
+                        resourceServerName);
+            }
+
+            if (resourceServer == null) {
+                throw new NoSuchResourceServerException(String.format("The resource server %s does not exist on tenant %s", resourceServerName, tenantName));
+            }
+
+            return resourceServer;
+        }
+    }
+
+    @Override
+    public void setResourceServer(String tenantName, ResourceServer resourceServer) throws Exception {
+        ValidateUtil.validateNotEmpty(tenantName, "tenantName");
+        ValidateUtil.validateNotNull(resourceServer, "resourceServer");
+
+        this.deleteResourceServer(tenantName, resourceServer.getName());
+        this.addResourceServer(tenantName, resourceServer);
+    }
+
+    @Override
+    public Collection<ResourceServer> getResourceServers(String tenantName) throws Exception {
+        ValidateUtil.validateNotEmpty(tenantName, "tenantName");
+
+        try (ILdapConnectionEx connection = this.getConnection()) {
+            Collection<ResourceServer> resourceServers;
+            String tenantsRootDn = this.ensureTenantExists(connection, tenantName);
+            resourceServers = DirectoryConfigStore.retrieveObjectsCollection(
+                    connection,
+                    tenantsRootDn,
+                    ContainerLdapObject.CONTAINER_RESOURCE_SERVERS,
+                    null /* additionalFilter */,
+                    ResourceServerLdapObject.getInstance(),
+                    null /* callback */);
+            return resourceServers;
         }
     }
 

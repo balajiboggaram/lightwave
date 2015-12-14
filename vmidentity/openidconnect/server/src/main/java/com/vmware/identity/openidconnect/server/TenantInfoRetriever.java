@@ -23,6 +23,7 @@ import org.apache.commons.lang3.Validate;
 
 import com.nimbusds.oauth2.sdk.OAuth2Error;
 import com.nimbusds.oauth2.sdk.id.Issuer;
+import com.vmware.identity.idm.AuthnPolicy;
 import com.vmware.identity.idm.NoSuchTenantException;
 
 /**
@@ -36,7 +37,7 @@ public class TenantInfoRetriever {
         this.idmClient = idmClient;
     }
 
-    public TenantInformation retrieveTenantInfo(String tenant) throws ServerException {
+    public TenantInfo retrieveTenantInfo(String tenant) throws ServerException {
         Validate.notEmpty(tenant, "tenant");
 
         try {
@@ -71,6 +72,7 @@ public class TenantInfoRetriever {
             throw new IllegalStateException("tenant has no public key!");
         }
 
+        AuthnPolicy authnPolicy;
         String issuer;
         String brandName;
         String logonBannerTitle;
@@ -84,6 +86,7 @@ public class TenantInfoRetriever {
         long refreshTokenHokLifetimeMs;
         long clockToleranceMs;
         try {
+            authnPolicy                  = this.idmClient.getAuthnPolicy(tenant);
             issuer                       = this.idmClient.getOIDCEntityID(tenant);
             brandName                    = this.idmClient.getBrandName(tenant);
             logonBannerTitle             = this.idmClient.getLogonBannerTitle(tenant);
@@ -100,9 +103,10 @@ public class TenantInfoRetriever {
             throw new ServerException(OAuth2Error.SERVER_ERROR.setDescription("idm error while retrieving tenant properties"), e);
         }
 
-        return new TenantInformation.Builder(tenant).
+        return new TenantInfo.Builder(tenant).
                 privateKey(privateKey).
                 publicKey(publicKey).
+                authnPolicy(new TenantInfo.AuthnPolicy(authnPolicy.IsPasswordAuthEnabled(), authnPolicy.IsWindowsAuthEnabled())).
                 issuer(new Issuer(issuer)).
                 brandName(brandName).
                 logonBannerTitle(logonBannerTitle).

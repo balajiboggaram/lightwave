@@ -60,7 +60,8 @@ public class ListenerHelper {
                         SignedJWT.parse(parameterMap.get("id_token")),
                         clientConfig.getConnectionConfig().getProviderPublicKey(),
                         clientConfig.getClientId(),
-                        clientConfig.getConnectionConfig().getIssuer());
+                        clientConfig.getConnectionConfig().getIssuer(),
+                        clientConfig.getClockToleranceInSeconds());
                 AccessToken accessToken = null;
                 if (parameterMap.containsKey("access_token")) {
                     accessToken = new AccessToken(parameterMap.get("access_token"));

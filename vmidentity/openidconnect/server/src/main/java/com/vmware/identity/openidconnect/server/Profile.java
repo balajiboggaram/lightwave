@@ -14,54 +14,65 @@
 
 package com.vmware.identity.openidconnect.server;
 
-import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 
 import com.nimbusds.jose.JWSAlgorithm;
+import com.nimbusds.oauth2.sdk.AuthorizationCodeGrant;
+import com.nimbusds.oauth2.sdk.ClientCredentialsGrant;
 import com.nimbusds.oauth2.sdk.GrantType;
+import com.nimbusds.oauth2.sdk.RefreshTokenGrant;
+import com.nimbusds.oauth2.sdk.ResourceOwnerPasswordCredentialsGrant;
 import com.nimbusds.oauth2.sdk.ResponseType;
 import com.nimbusds.oauth2.sdk.Scope;
 import com.nimbusds.oauth2.sdk.auth.ClientAuthenticationMethod;
 import com.nimbusds.openid.connect.sdk.OIDCResponseTypeValue;
 import com.nimbusds.openid.connect.sdk.SubjectType;
+import com.vmware.identity.openidconnect.common.GssTicketGrant;
+import com.vmware.identity.openidconnect.common.SolutionUserCredentialsGrant;
 
 /**
  * @author Jun Sun
+ * @author Yehia Zayour
  */
 public final class Profile {
 
-    public static final List<SubjectType> SUBJECT_TYPES = new ArrayList<SubjectType>(Arrays.asList(
-            SubjectType.PUBLIC));
+    public static final List<SubjectType> SUBJECT_TYPES = Arrays.asList(
+            SubjectType.PUBLIC);
 
-    public static final List<ResponseType> RESPONSE_TYPES = new ArrayList<ResponseType>(Arrays.asList(
+    public static final List<ResponseType> RESPONSE_TYPES = Arrays.asList(
             new ResponseType(ResponseType.Value.CODE),
             new ResponseType(OIDCResponseTypeValue.ID_TOKEN),
-            new ResponseType(OIDCResponseTypeValue.ID_TOKEN, ResponseType.Value.TOKEN)));
+            new ResponseType(OIDCResponseTypeValue.ID_TOKEN, ResponseType.Value.TOKEN));
 
-    public static final List<JWSAlgorithm> ID_TOKEN_JWS_ALGS = new ArrayList<JWSAlgorithm>(Arrays.asList(
-            JWSAlgorithm.RS256));
+    public static final List<JWSAlgorithm> ID_TOKEN_JWS_ALGS = Arrays.asList(
+            JWSAlgorithm.RS256);
 
-    public static final List<GrantType> GRANT_TYPES = new ArrayList<GrantType>(Arrays.asList(
-            GrantType.AUTHORIZATION_CODE,
+    public static final List<GrantType> GRANT_TYPES = Arrays.asList(
             GrantType.IMPLICIT,
-            GrantType.PASSWORD,
-            GrantType.REFRESH_TOKEN));
+            AuthorizationCodeGrant.GRANT_TYPE,
+            RefreshTokenGrant.GRANT_TYPE,
+            ResourceOwnerPasswordCredentialsGrant.GRANT_TYPE,
+            ClientCredentialsGrant.GRANT_TYPE,
+            SolutionUserCredentialsGrant.GRANT_TYPE,
+            GssTicketGrant.GRANT_TYPE);
 
-    public static final List<ClientAuthenticationMethod> TOKEN_ENDPOINT_AUTH_METHODS = new ArrayList<ClientAuthenticationMethod>(Arrays.asList(
-            ClientAuthenticationMethod.PRIVATE_KEY_JWT));
+    public static final List<ClientAuthenticationMethod> TOKEN_ENDPOINT_AUTH_METHODS = Arrays.asList(
+            ClientAuthenticationMethod.PRIVATE_KEY_JWT);
 
-    public static final List<JWSAlgorithm> TOKEN_ENDPOINT_JWS_ALGS = new ArrayList<JWSAlgorithm>(Arrays.asList(
-            JWSAlgorithm.RS256));
+    public static final List<JWSAlgorithm> TOKEN_ENDPOINT_JWS_ALGS = Arrays.asList(
+            JWSAlgorithm.RS256);
 
     public static final Scope SCOPES = new Scope(
             "openid",
             "offline_access",
             "id_groups",
+            "id_groups_filtered",
             "at_groups",
+            "at_groups_filtered",
             "rs_admin_server");
 
-    public static final List<String> CLAIMS = new ArrayList<String>(Arrays.asList(
+    public static final List<String> CLAIMS = Arrays.asList(
             "sub",
             "exp",
             "aud",
@@ -74,6 +85,11 @@ public final class Profile {
             "token_type",
             "nonce",
             "hotk",
+            "sid",
+            "act_as",
+            "tenant",
+            "client_id",
+            "scope",
             "groups",
-            "admin_server_role"));
+            "admin_server_role");
 }

@@ -51,6 +51,7 @@ public class ResourceServerAccessToken {
      *                                          issuer and other server supported capability configurations.
      * @param resourceServer                    Name of resource server.
      * @param issuer                            OIDC issuer.
+     * @param clockToleranceInSeconds           Clock tolerance in seconds.
      * @return                                  Access token including claims.
      * @throws TokenValidationException         Token validation exception.
      */
@@ -58,7 +59,8 @@ public class ResourceServerAccessToken {
             String value,
             RSAPublicKey providerPublicKey,
             String resourceServer,
-            Issuer issuer) throws TokenValidationException {
+            Issuer issuer,
+            long clockToleranceInSeconds) throws TokenValidationException {
         Validate.notNull(value, "value");
         Validate.notNull(providerPublicKey, "providerPublicKey");
         Validate.notNull(resourceServer, "resourceServer");
@@ -80,7 +82,7 @@ public class ResourceServerAccessToken {
         }
 
         // verify claims
-        Date now = new Date();
+        Date adjustedCurrentDate = new Date(new Date().getTime() - clockToleranceInSeconds * 1000);
         ReadOnlyJWTClaimsSet jwtClaimsSet = null;
         try {
             jwtClaimsSet = signedJWT.getJWTClaimsSet();
@@ -89,8 +91,7 @@ public class ResourceServerAccessToken {
                 throw new TokenValidationException(TokenValidationError.INVALID_AUDIENCE, "Audience in claim set does not contain the specified resource server.");
             }
 
-            // TODO: add clock skew
-            if ((jwtClaimsSet.getExpirationTime().before(now /* + clockSkew */))) {
+            if ((jwtClaimsSet.getExpirationTime().before(adjustedCurrentDate))) {
                 throw new TokenValidationException(TokenValidationError.EXPIRED_TOKEN, "Token is expired.");
             }
 

@@ -47,6 +47,7 @@ public class OIDCClient {
     private final ClientID clientId;
     private final HolderOfKeyConfig holderOfKeyConfig;
     private final HighAvailabilityConfig highAvailabilityConfig;
+    private final long clockToleranceInSeconds;
     private final KeyStore keyStore;
 
     /**
@@ -66,6 +67,7 @@ public class OIDCClient {
         this.clientId = clientConfig.getClientId();
         this.holderOfKeyConfig = clientConfig.getHolderOfKeyConfig();
         this.highAvailabilityConfig = clientConfig.getHighAvailabilityConfig();
+        this.clockToleranceInSeconds = clientConfig.getClockToleranceInSeconds();
         this.keyStore = clientConfig.getConnectionConfig().getKeyStore();
     }
 
@@ -96,17 +98,14 @@ public class OIDCClient {
         com.nimbusds.oauth2.sdk.ResponseType nimbusResponseType = new com.nimbusds.oauth2.sdk.ResponseType();
         Set<ResponseValue> responseTypeSet = responseType.getResponseTypeSet();
         if (responseTypeSet.size() == 1 && responseTypeSet.contains(ResponseValue.CODE)) {
-            if (!tokenSpec.getTokenType().equals(TokenType.HOK)) {
-                throw new OIDCClientException("Only HOK token is supported when response type is code.");
+            if (this.holderOfKeyConfig == null) {
+                throw new OIDCClientException("HolderOfKeyConfig is required when response type is code.");
             }
             if (!responseMode.equals(ResponseMode.QUERY) && !responseMode.equals(ResponseMode.FORM_POST)) {
                 throw new OIDCClientException("Only 'QUERY' or 'FORM_POST' response mode is supported when response type is code.");
             }
             nimbusResponseType.add(com.nimbusds.oauth2.sdk.ResponseType.Value.CODE);
         } else if (responseTypeSet.contains(ResponseValue.ID_TOKEN)) {
-            if (!tokenSpec.getTokenType().equals(TokenType.BEARER)) {
-                throw new OIDCClientException("Only Bearer token is supported when response type includes id_token.");
-            }
             if (!responseMode.equals(ResponseMode.FRAGMENT) && !responseMode.equals(ResponseMode.FORM_POST)) {
                 throw new OIDCClientException("Only 'FRAGMENT' or 'FORM_POST' response mode is supported when response type includes id_token.");
             }
@@ -179,6 +178,9 @@ public class OIDCClient {
             TokenSpec tokenSpec) throws OIDCClientException, OIDCServerException, TokenValidationException, SSLConnectionException {
         Validate.notNull(authorizationGrant, "authorizationGrant");
         Validate.notNull(tokenSpec, "tokenSpec");
+        if ((authorizationGrant instanceof AuthorizationCodeGrant || authorizationGrant instanceof RefreshTokenGrant) && tokenSpec != TokenSpec.EMPTY) {
+            throw new IllegalArgumentException("tokenSpec must be TokenSpec.EMPTY for authz code and refresh token grants");
+        }
 
         URI tokenEndpointURI = this.tokenEndpointURI;
         if (highAvailabilityEnabled()) {
@@ -209,10 +211,10 @@ public class OIDCClient {
 
         OIDCTokens oidcTokens = OIDCClientUtils.parseTokenResponse(
                 httpResponse,
-                tokenSpec,
                 this.providerPublicKey,
                 this.clientId,
-                this.issuer);
+                this.issuer,
+                this.clockToleranceInSeconds);
         return oidcTokens;
     }
 
@@ -232,6 +234,42 @@ public class OIDCClient {
         Validate.notNull(postLogoutRedirectEndpointURI, "postLogoutRedirectEndpointURI");
         Validate.notNull(idToken, "idToken");
 
+        LogoutRequest logoutRequest = buildLogoutRequest(postLogoutRedirectEndpointURI, idToken, state);
+        try {
+            return logoutRequest.toURI();
+        } catch (SerializeException e) {
+            throw new OIDCClientException("Build logout request URI failed: " + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * Build a logout request html form (client returns form that is auto-submitted to the Authorization Server)
+     *
+     * @param postLogoutRedirectEndpointURI     Post logout URI.
+     * @param idToken                           ID token received from a previous request.
+     * @param state                             State value used in a logout request, it is optional.
+     * @return                                  Logout request html form.
+     * @throws OIDCClientException              Client side exception.
+     */
+    public String buildLogoutRequestHtmlForm(
+            URI postLogoutRedirectEndpointURI,
+            IDToken idToken,
+            State state) throws OIDCClientException {
+        Validate.notNull(postLogoutRedirectEndpointURI, "postLogoutRedirectEndpointURI");
+        Validate.notNull(idToken, "idToken");
+
+        LogoutRequest logoutRequest = buildLogoutRequest(postLogoutRedirectEndpointURI, idToken, state);
+        try {
+            return logoutRequest.toHtmlForm();
+        } catch (SerializeException e) {
+            throw new OIDCClientException("Build logout request html form failed: " + e.getMessage(), e);
+        }
+    }
+
+    private LogoutRequest buildLogoutRequest(
+            URI postLogoutRedirectEndpointURI,
+            IDToken idToken,
+            State state) throws OIDCClientException {
         URI endSessionEndpointURI = this.endSessionEndpointURI;
         if (highAvailabilityEnabled()) {
             String domainController = getAvailableDomainController();
@@ -255,11 +293,7 @@ public class OIDCClient {
                 clientAssertion,
                 new CorrelationID());
 
-        try {
-            return logoutRequest.toURI();
-        } catch (SerializeException e) {
-            throw new OIDCClientException("Build logout request URI failed: " + e.getMessage(), e);
-        }
+        return logoutRequest;
     }
 
     private boolean highAvailabilityEnabled() {

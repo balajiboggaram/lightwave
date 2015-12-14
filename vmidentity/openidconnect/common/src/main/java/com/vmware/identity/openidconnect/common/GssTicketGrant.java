@@ -17,6 +17,7 @@ package com.vmware.identity.openidconnect.common;
 import java.util.HashMap;
 import java.util.Map;
 
+import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.Validate;
 
 import com.nimbusds.jose.util.Base64;
@@ -52,15 +53,15 @@ public class GssTicketGrant extends AuthorizationGrant {
     }
 
     @Override
-    public Map<String,String> toParameters() {
-        Map<String,String> parameters = new HashMap<String, String>();
+    public Map<String, String> toParameters() {
+        Map<String, String> parameters = new HashMap<String, String>();
         parameters.put("grant_type", GRANT_TYPE.getValue());
         parameters.put("context_id", this.contextId);
         parameters.put("gss_ticket", Base64.encode(this.gssTicket).toString());
         return parameters;
     }
 
-    public static GssTicketGrant parse(Map<String,String> parameters) throws ParseException {
+    public static GssTicketGrant parse(Map<String, String> parameters) throws ParseException {
         Validate.notNull(parameters, "parameters");
 
         String grantTypeString = parameters.get("grant_type");
@@ -69,12 +70,12 @@ public class GssTicketGrant extends AuthorizationGrant {
         }
 
         String contextIdString = parameters.get("context_id");
-        if (contextIdString == null) {
+        if (StringUtils.isBlank(contextIdString)) {
             throw new ParseException("missing context_id parameter");
         }
 
         String gssTicketString = parameters.get("gss_ticket");
-        if (gssTicketString == null) {
+        if (StringUtils.isBlank(gssTicketString)) {
             throw new ParseException("missing gss_ticket parameter");
         }
         byte[] gssTicketBytes = new Base64(gssTicketString).decode();

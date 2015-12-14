@@ -3006,6 +3006,7 @@ final class ContainerLdapObject extends BaseLdapObject<String>
     public static final String CONTAINER_TRUSTED_CERTIFICATE_CHAINS = "TrustedCertificateChains";
     public static final String CONTAINER_SOLUTION_USERS = "ServicePrincipals";
     public static final String CONTAINER_OIDC_CLIENTS = "OIDCClients";
+    public static final String CONTAINER_RESOURCE_SERVERS = "ResourceServers";
 
     //ExternalIdp containers
     public static final String CONTAINER_EXTERNAL_IDP_SSO_SERVICES = "SSOServices";

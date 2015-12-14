@@ -94,8 +94,8 @@ public class MetadataController {
 
         try {
             TenantInfoRetriever tenantInfoRetriever = new TenantInfoRetriever(this.idmClient);
-            TenantInformation tenantInformation = tenantInfoRetriever.retrieveTenantInfo(tenant);
-            Issuer issuer = tenantInformation.getIssuer();
+            TenantInfo tenantInfo = tenantInfoRetriever.retrieveTenantInfo(tenant);
+            Issuer issuer = tenantInfo.getIssuer();
 
             URI jwkSetURI = new URI(Shared.replaceLast(issuer.getValue(), tenant, "jwks/" + tenant));
             URI authzEndpoint = new URI(Shared.replaceLast(issuer.getValue(), tenant, "oidc/authorize/" + tenant));
@@ -204,10 +204,10 @@ public class MetadataController {
 
         try {
             TenantInfoRetriever tenantInfoRetriever = new TenantInfoRetriever(this.idmClient);
-            TenantInformation tenantInformation = tenantInfoRetriever.retrieveTenantInfo(tenant);
+            TenantInfo tenantInfo = tenantInfoRetriever.retrieveTenantInfo(tenant);
 
             RSAKey rsaKey = new RSAKey(
-                    tenantInformation.getPublicKey(),
+                    tenantInfo.getPublicKey(),
                     KeyUse.SIGNATURE,
                     null,
                     JWSAlgorithm.RS256,

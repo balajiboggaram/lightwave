@@ -14,7 +14,6 @@
 
 package com.vmware.identity.openidconnect.client;
 
-import java.net.URI;
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
 import java.security.KeyStore;
@@ -23,12 +22,18 @@ import java.security.cert.X509Certificate;
 import java.security.interfaces.RSAPrivateKey;
 import java.security.interfaces.RSAPublicKey;
 import java.util.Arrays;
-import java.util.HashSet;
+import java.util.List;
 import java.util.Properties;
-import java.util.Set;
 import java.util.UUID;
 
 import org.junit.AfterClass;
+
+import com.vmware.identity.rest.core.data.CertificateDTO;
+import com.vmware.identity.rest.idm.client.IdmClient;
+import com.vmware.identity.rest.idm.data.OIDCClientDTO;
+import com.vmware.identity.rest.idm.data.OIDCClientMetadataDTO;
+import com.vmware.identity.rest.idm.data.SolutionUserDTO;
+import com.vmware.identity.rest.idm.data.attributes.MemberType;
 
 /**
  * Base Class for OIDC Client Integration Test
@@ -38,7 +43,6 @@ import org.junit.AfterClass;
 public class OIDCClientITBase {
 
     static ClientID clientId;
-    static ClientRegistrationHelper clientRegistrationByAdminHelper;
     static AccessToken accessToken;
     static OIDCClient nonRegNoHOKConfigClient, nonRegHOKConfigClient, regClient, regClientWithHA;
     static TokenSpec bearerWithRefreshSpec, bearerWithoutRefreshSpec, hokWithRefreshSpec, hokWithoutRefreshSpec;
@@ -46,12 +50,16 @@ public class OIDCClientITBase {
     static SolutionUserCredentialsGrant solutionUserCredentialsGrant;
     static ClientCredentialsGrant clientCredentialsGrant;
 
+    static IdmClient idmClient;
+    static String tenant;
+    static String solutionUserName;
+
     public static void setUp(String config) throws Exception {
         Properties properties = new Properties();
         properties.load(OIDCClientIT.class.getClassLoader().getResourceAsStream(config));
         String username = properties.getProperty("admin.user");
         String password = properties.getProperty("admin.password");
-        String tenant = properties.getProperty("tenant");
+        tenant = properties.getProperty("tenant");
         String domainControllerFQDN = properties.getProperty("oidc.op.FQDN");
         int domainControllerPort = Integer.parseInt(properties.getProperty("oidc.op.port"));
 
@@ -59,16 +67,11 @@ public class OIDCClientITBase {
         KeyStore ks = KeyStore.getInstance("JKS");
         ks.load(null, null);
 
-        // all REST calls should be replaced with REST Admin client library later.
-        AuthenticationFrameworkHelper authenticationFrameworkHelper = new AuthenticationFrameworkHelper(
+        // create REST afd client to populate SSL certificates
+        TestUtils.populateSSLCertificates(
                 domainControllerFQDN,
-                domainControllerPort);
-        authenticationFrameworkHelper.populateSSLCertificates(ks);
-
-        AdminServerHelper adminServerHelper = new AdminServerHelper.Builder(domainControllerFQDN)
-        .domainControllerPort(domainControllerPort)
-        .tenant(tenant)
-        .keyStore(ks).build();
+                domainControllerPort,
+                ks);
 
         // retrieve OIDC meta data
         MetadataHelper metadataHelper = new MetadataHelper.Builder(domainControllerFQDN)
@@ -86,59 +89,57 @@ public class OIDCClientITBase {
         passwordCredentialsGrant = new PasswordCredentialsGrant(
                 username,
                 password);
-        TokenSpec tokenSpec = new TokenSpec.Builder(TokenType.BEARER).resouceServers(Arrays.asList("rs_admin_server")).build();
+        TokenSpec tokenSpec = new TokenSpec.Builder().resouceServers(Arrays.asList("rs_admin_server")).build();
         OIDCTokens oidcTokens = nonRegNoHOKConfigClient.acquireTokens(passwordCredentialsGrant, tokenSpec);
         accessToken = oidcTokens.getAccessToken();
+
+        // create REST idm client
+        idmClient = TestUtils.createIdmClient(
+                accessToken,
+                domainControllerFQDN,
+                domainControllerPort,
+                ks);
 
         // create key pair and client private key, certificate
         KeyPairGenerator keyGen = KeyPairGenerator.getInstance("RSA");
         keyGen.initialize(1024, new SecureRandom());
         KeyPair clientKeyPair = keyGen.generateKeyPair();
         RSAPrivateKey clientPrivateKey = (RSAPrivateKey) clientKeyPair.getPrivate();
-        String solutionUserName = properties.getProperty("oidc.rp.prefix") + UUID.randomUUID().toString();
+        solutionUserName = properties.getProperty("oidc.rp.prefix") + UUID.randomUUID().toString();
         X509Certificate clientCertificate = TestUtils.generateCertificate(clientKeyPair, solutionUserName);
 
-        // call REST admin server to create a solution user
-        adminServerHelper.createSolutionUser(
-                accessToken,
-                TokenType.BEARER,
-                solutionUserName,
-                clientCertificate);
+        // create a solution user
+        CertificateDTO certificateDTO = new CertificateDTO.Builder()
+        .withEncoded(TestUtils.convertToBase64PEMString(clientCertificate))
+        .build();
+        SolutionUserDTO solutionUserDTO = new SolutionUserDTO.Builder()
+        .withName(solutionUserName)
+        .withDomain(tenant)
+        .withCertificate(certificateDTO)
+        .build();
+        idmClient.solutionUser().create(tenant, solutionUserDTO);
 
-        // call REST admin server to add the solution user to ActAs group
-        String solutionUserUPN = solutionUserName + "@" + tenant;
-        adminServerHelper.addSolutionUserToActAsUsersGroup(
-                accessToken,
-                TokenType.BEARER,
-                solutionUserUPN);
+        // add the solution user to ActAs group
+        List<String> members = Arrays.asList(solutionUserName + "@" + tenant);
+        idmClient.group().addMembers(tenant, "ActAsUsers", tenant, members, MemberType.USER);
+
+        // register a OIDC client
+        List<String> redirectURIs = Arrays.asList("https://test.com:7444/openidconnect/redirect");
+        List<String> postLogoutRedirectURIs = Arrays.asList("https://test.com:7444/openidconnect/postlogout");
+        String logoutURI = "https://test.com:7444/openidconnect/logout";
+        OIDCClientMetadataDTO oidcClientMetadataDTO = new OIDCClientMetadataDTO.Builder()
+        .withRedirectUris(redirectURIs)
+        .withPostLogoutRedirectUris(postLogoutRedirectURIs)
+        .withLogoutUri(logoutURI)
+        .withTokenEndpointAuthMethod(ClientAuthenticationMethod.PRIVATE_KEY_JWT.getValue())
+        .withCertSubjectDN(clientCertificate.getSubjectDN().getName())
+        .build();
+        OIDCClientDTO oidcClientDTO = idmClient.oidcClient().register(tenant, oidcClientMetadataDTO);
+        clientId = new ClientID(oidcClientDTO.getClientId());
 
         // create client config
         connectionConfig = new ConnectionConfig(providerMetadata, providerPublicKey, ks);
         HolderOfKeyConfig holderOfKeyConfig = new HolderOfKeyConfig(clientPrivateKey, clientCertificate);
-
-        // create client registration helper
-        clientRegistrationByAdminHelper = new ClientRegistrationHelper.Builder(domainControllerFQDN)
-        .domainControllerPort(domainControllerPort)
-        .tenant(tenant)
-        .keyStore(ks).build();
-
-        URI redirectURI = new URI("https://test.com:7444/openidconnect/redirect");
-        URI postLogoutRedirectURI = new URI("https://test.com:7444/openidconnect/postlogout");
-        URI logoutURI = new URI("https://test.com:7444/openidconnect/logout");
-        Set<URI> redirectURIs = new HashSet<URI>();
-        redirectURIs.add(redirectURI);
-        Set<URI> postLogoutRedirectURIs = new HashSet<URI>();
-        postLogoutRedirectURIs.add(postLogoutRedirectURI);
-
-        ClientInformation clientInformation = clientRegistrationByAdminHelper.registerClient(
-                accessToken,
-                TokenType.BEARER,
-                redirectURIs,
-                logoutURI,
-                postLogoutRedirectURIs,
-                ClientAuthenticationMethod.PRIVATE_KEY_JWT,
-                clientCertificate.getSubjectDN().getName());
-        clientId = clientInformation.getClientId();
 
         // create clients
         clientConfig = new ClientConfig(connectionConfig, null, null);
@@ -157,23 +158,24 @@ public class OIDCClientITBase {
         regClientWithHA = new OIDCClient(clientConfig);
 
         // create token specs
-        bearerWithRefreshSpec = new TokenSpec.Builder(TokenType.BEARER).
+        // TODO: there is no more difference between bearer and hok tokenSpec so we should delete the duplicates
+        bearerWithRefreshSpec = new TokenSpec.Builder().
                 refreshToken(true).
-                idTokenGroups(true).
-                accessTokenGroups(true).
+                idTokenGroups(GroupMembershipType.FULL).
+                accessTokenGroups(GroupMembershipType.FULL).
                 resouceServers(Arrays.asList("rs_admin_server")).build();
-        bearerWithoutRefreshSpec = new TokenSpec.Builder(TokenType.BEARER).
-                idTokenGroups(true).
-                accessTokenGroups(true).
+        bearerWithoutRefreshSpec = new TokenSpec.Builder().
+                idTokenGroups(GroupMembershipType.FULL).
+                accessTokenGroups(GroupMembershipType.FULL).
                 resouceServers(Arrays.asList("rs_admin_server")).build();
-        hokWithRefreshSpec = new TokenSpec.Builder(TokenType.HOK).
+        hokWithRefreshSpec = new TokenSpec.Builder().
                 refreshToken(true).
-                idTokenGroups(true).
-                accessTokenGroups(true).
+                idTokenGroups(GroupMembershipType.FULL).
+                accessTokenGroups(GroupMembershipType.FULL).
                 resouceServers(Arrays.asList("rs_admin_server")).build();
-        hokWithoutRefreshSpec = new TokenSpec.Builder(TokenType.HOK).
-                idTokenGroups(true).
-                accessTokenGroups(true).
+        hokWithoutRefreshSpec = new TokenSpec.Builder().
+                idTokenGroups(GroupMembershipType.FULL).
+                accessTokenGroups(GroupMembershipType.FULL).
                 resouceServers(Arrays.asList("rs_admin_server")).build();
 
         // create grants
@@ -184,9 +186,10 @@ public class OIDCClientITBase {
 
     @AfterClass
     public static void tearDown() throws Exception {
-        // TODO: delete solution user by calling REST admin client library
+        // delete solution user
+        idmClient.user().delete(tenant, solutionUserName, tenant);
 
         // delete OIDC client here.
-        clientRegistrationByAdminHelper.deleteClient(accessToken, TokenType.BEARER, clientId);
+        idmClient.oidcClient().delete(tenant, clientId.getValue());
     }
 }

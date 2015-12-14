@@ -21,9 +21,11 @@ import java.security.KeyStore;
 import java.security.SecureRandom;
 import java.security.cert.X509Certificate;
 import java.security.interfaces.RSAPublicKey;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Properties;
 import java.util.Set;
 import java.util.UUID;
@@ -37,6 +39,8 @@ import org.junit.Test;
  *
  * @author Jun Sun
  */
+
+@Deprecated
 public class ClientRegistrationHelperIT {
 
     private static Properties properties;
@@ -107,10 +111,10 @@ public class ClientRegistrationHelperIT {
         nonRegisteredClient = new OIDCClient(clientConfig);
 
         PasswordCredentialsGrant passwordGrant = new PasswordCredentialsGrant(username, password);
-        TokenSpec tokenSpec = new TokenSpec.Builder(TokenType.BEARER).
+        TokenSpec tokenSpec = new TokenSpec.Builder().
                 refreshToken(true).
-                idTokenGroups(true).
-                accessTokenGroups(true).
+                idTokenGroups(GroupMembershipType.FULL).
+                accessTokenGroups(GroupMembershipType.FULL).
                 resouceServers(Arrays.asList("rs_admin_server")).build();
 
         OIDCTokens oidcTokens = nonRegisteredClient.acquireTokens(passwordGrant, tokenSpec);
@@ -143,6 +147,74 @@ public class ClientRegistrationHelperIT {
                 clientRegistrationHelper.deleteClient(accessToken, TokenType.BEARER, clientId);
             }
         }
+    }
+
+    public class ClientRegOp implements Runnable {
+        private final int index;
+
+        ClientRegOp(int index) {
+          this.index = index;
+        }
+
+        @Override
+        public void run() {
+            try{
+                URI redirectURI = new URI(String.format("https://test%d.com:7444/openidconnect/redirect", index));
+                URI postLogoutRedirectURI = new URI(String.format("https://test%d.com:7444/openidconnect/postlogout", index));
+                URI logoutURI = new URI(String.format("https://test%d.com:7444/openidconnect/logout", index));
+                Set<URI> redirectURIs = new HashSet<URI>();
+                redirectURIs.add(redirectURI);
+                Set<URI> postLogoutRedirectURIs = new HashSet<URI>();
+                postLogoutRedirectURIs.add(postLogoutRedirectURI);
+
+                ClientInformation clientInformation = clientRegistrationHelper.registerClient(
+                        accessToken,
+                        TokenType.BEARER,
+                        redirectURIs,
+                        logoutURI,
+                        postLogoutRedirectURIs,
+                        ClientAuthenticationMethod.PRIVATE_KEY_JWT,
+                        clientX509Certificate.getSubjectDN().getName());
+                clientId = clientInformation.getClientId();
+                Assert.assertNotNull(clientId.getValue());
+            } catch (Exception e) {
+                System.out.println("Exception caught: " + e.getMessage());
+            } finally {
+                try{
+                    if (clientId != null) {
+                        clientRegistrationHelper.deleteClient(accessToken, TokenType.BEARER, clientId);
+                    }
+                } catch (Exception e) {
+                    System.out.println("Exception caught: " + e.getMessage());
+                }
+            }
+        }
+    }
+
+    @Test
+    public void testRegisterMultipleConcurrentClients() throws Exception {
+
+        int nConcurrent = 50;
+        List<Thread> threads = new ArrayList<Thread>();
+
+        for (int i = 0; i < nConcurrent; i++) {
+            Runnable task = new ClientRegOp(i);
+            Thread worker = new Thread(task);
+            worker.setName(String.valueOf(i));
+            worker.start();
+            threads.add(worker);
+        }
+
+        int running = 0;
+        do {
+            running = 0;
+            for (Thread thread : threads) {
+                if (thread.isAlive()) {
+                    running++;
+                }
+            }
+            System.out.println(running + " running threads are active.");
+        } while (running > 0);
     }
 
     @Test

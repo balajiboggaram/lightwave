@@ -14,13 +14,25 @@
 
 package com.vmware.identity.openidconnect.client;
 
+import java.io.ByteArrayOutputStream;
 import java.math.BigInteger;
 import java.security.KeyPair;
+import java.security.KeyStore;
 import java.security.SecureRandom;
+import java.security.cert.CertificateException;
 import java.security.cert.X509Certificate;
 import java.security.interfaces.RSAPrivateKey;
 import java.util.Date;
+import java.util.List;
 
+import javax.net.ssl.SSLContext;
+import javax.net.ssl.TrustManagerFactory;
+
+import org.apache.commons.codec.binary.Base64;
+import org.apache.http.conn.ssl.DefaultHostnameVerifier;
+import org.apache.http.conn.ssl.NoopHostnameVerifier;
+import org.apache.http.ssl.SSLContextBuilder;
+import org.apache.http.ssl.TrustStrategy;
 import org.bouncycastle.asn1.x500.X500Name;
 import org.bouncycastle.cert.X509CertificateHolder;
 import org.bouncycastle.cert.X509v3CertificateBuilder;
@@ -37,6 +49,9 @@ import com.nimbusds.jose.crypto.RSASSASigner;
 import com.nimbusds.jwt.JWTClaimsSet;
 import com.nimbusds.jwt.SignedJWT;
 import com.vmware.identity.openidconnect.common.TokenType;
+import com.vmware.identity.rest.afd.client.AfdClient;
+import com.vmware.identity.rest.core.data.CertificateDTO;
+import com.vmware.identity.rest.idm.client.IdmClient;
 
 /**
  * Test Utils
@@ -91,7 +106,7 @@ class TestUtils {
         Assert.assertNotNull(oidcTokens.getRefreshToken());
 
         RefreshTokenGrant refreshTokenGrant = new RefreshTokenGrant(new RefreshToken(oidcTokens.getRefreshToken().getValue()));
-        oidcTokens = oidclient.acquireTokens(refreshTokenGrant, tokenSpec);
+        oidcTokens = oidclient.acquireTokens(refreshTokenGrant, TokenSpec.EMPTY);
         Assert.assertNotNull(oidcTokens.getAccessToken());
         Assert.assertNotNull(oidcTokens.getIdToken());
         Assert.assertNull(oidcTokens.getRefreshToken());
@@ -137,5 +152,61 @@ class TestUtils {
             }
         }
         Assert.assertTrue(catched);
+    }
+
+    static void populateSSLCertificates(
+            String domainControllerFQDN,
+            int domainControllerPort,
+            KeyStore keyStore) throws Exception {
+        AfdClient afdClient = new AfdClient(
+                domainControllerFQDN,
+                domainControllerPort,
+                NoopHostnameVerifier.INSTANCE,
+                new SSLContextBuilder().loadTrustMaterial(
+                        null,
+                        new TrustStrategy() {
+                            @Override
+                            public boolean isTrusted(X509Certificate[] chain, String authType) throws CertificateException {
+                                return true;
+                            }
+                        }).build());
+
+        List<CertificateDTO> certs = afdClient.vecs().getSSLCertificates();
+        int index = 1;
+        for (CertificateDTO cert : certs) {
+            keyStore.setCertificateEntry(String.format("VecsSSLCert%d", index), cert.getX509Certificate());
+            index++;
+        }
+    }
+
+    static IdmClient createIdmClient(
+            AccessToken accessToken,
+            String domainControllerFQDN,
+            int domainControllerPort,
+            KeyStore keyStore) throws Exception {
+        TrustManagerFactory trustManagerFactory = TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm());
+        trustManagerFactory.init(keyStore);
+        SSLContext sslContext = SSLContext.getInstance("SSL");
+        sslContext.init(null, trustManagerFactory.getTrustManagers(), null);
+        IdmClient idmClient = new IdmClient(
+                domainControllerFQDN,
+                domainControllerPort,
+                new DefaultHostnameVerifier(),
+                sslContext);
+        com.vmware.identity.rest.core.client.AccessToken restAccessToken =
+                new com.vmware.identity.rest.core.client.AccessToken(accessToken.getValue(),
+                        com.vmware.identity.rest.core.client.AccessToken.Type.JWT);
+        idmClient.setToken(restAccessToken);
+        return idmClient;
+    }
+
+    static String convertToBase64PEMString(X509Certificate x509Certificate) throws Exception {
+        ByteArrayOutputStream byteArrayOutputStream = new ByteArrayOutputStream();
+        byteArrayOutputStream.write("-----BEGIN CERTIFICATE-----".getBytes());
+        byteArrayOutputStream.write("\n".getBytes());
+        byteArrayOutputStream.write(Base64.encodeBase64(x509Certificate.getEncoded()));
+        byteArrayOutputStream.write("-----END CERTIFICATE-----".getBytes());
+        byteArrayOutputStream.write("\n".getBytes());
+        return byteArrayOutputStream.toString();
     }
 }

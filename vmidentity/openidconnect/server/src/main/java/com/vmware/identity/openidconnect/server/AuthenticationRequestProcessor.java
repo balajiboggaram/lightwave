@@ -14,7 +14,6 @@
 
 package com.vmware.identity.openidconnect.server;
 
-import java.net.URI;
 import java.util.Locale;
 import java.util.Set;
 
@@ -29,6 +28,7 @@ import org.springframework.web.servlet.ModelAndView;
 
 import com.nimbusds.jose.util.Base64;
 import com.nimbusds.oauth2.sdk.AuthorizationCode;
+import com.nimbusds.oauth2.sdk.AuthorizationCodeGrant;
 import com.nimbusds.oauth2.sdk.ErrorObject;
 import com.nimbusds.oauth2.sdk.GrantType;
 import com.nimbusds.oauth2.sdk.OAuth2Error;
@@ -37,15 +37,12 @@ import com.nimbusds.oauth2.sdk.ResponseType;
 import com.nimbusds.oauth2.sdk.token.AccessToken;
 import com.nimbusds.openid.connect.sdk.AuthenticationResponse;
 import com.nimbusds.openid.connect.sdk.OIDCResponseTypeValue;
-import com.nimbusds.openid.connect.sdk.rp.OIDCClientInformation;
-import com.nimbusds.openid.connect.sdk.rp.OIDCClientMetadata;
 import com.vmware.identity.diagnostics.DiagnosticsLoggerFactory;
 import com.vmware.identity.diagnostics.IDiagnosticsLogger;
 import com.vmware.identity.idm.GSSResult;
 import com.vmware.identity.openidconnect.common.AuthenticationErrorResponse;
 import com.vmware.identity.openidconnect.common.AuthenticationRequest;
 import com.vmware.identity.openidconnect.common.AuthenticationSuccessResponse;
-import com.vmware.identity.openidconnect.common.CommonUtils;
 import com.vmware.identity.openidconnect.common.HttpRequest;
 import com.vmware.identity.openidconnect.common.IDToken;
 import com.vmware.identity.openidconnect.common.SessionID;
@@ -54,6 +51,8 @@ import com.vmware.identity.openidconnect.common.SessionID;
  * @author Yehia Zayour
  */
 public class AuthenticationRequestProcessor {
+    private static final long REQUEST_LIFETIME_MS = 50 * 60 * 1000L; // 50 minutes, to allow for user to get login form, then login later
+
     private static final String REQUEST_LOGIN_PARAMETER = "CastleAuthorization";
     private static final String RESPONSE_AUTHZ_HEADER   = "CastleAuthorization";
     private static final String RESPONSE_ERROR_HEADER   = "CastleError";
@@ -77,9 +76,8 @@ public class AuthenticationRequestProcessor {
     private final HttpRequest httpRequest;
     private final String tenant;
 
-    private TenantInformation tenantInfo;
-    private OIDCClientInformation clientInfo;
-    private ServerInformation serverInfo;
+    private TenantInfo tenantInfo;
+    private ClientInfo clientInfo;
     private AuthenticationRequest authnRequest;
 
     public AuthenticationRequestProcessor(
@@ -109,7 +107,6 @@ public class AuthenticationRequestProcessor {
         // set by initialize()
         this.tenantInfo = null;
         this.clientInfo = null;
-        this.serverInfo = null;
         this.authnRequest = null;
     }
 
@@ -124,13 +121,15 @@ public class AuthenticationRequestProcessor {
         ErrorObject validationError = validate();
         if (validationError != null) {
             Shared.logFailedRequest(logger, validationError);
-            AuthenticationErrorResponse authnErrorResponse = new AuthenticationErrorResponse(
-                    this.authnRequest.getRedirectionURI(),
-                    validationError,
-                    this.authnRequest.getResponseType(),
-                    this.authnRequest.getState(),
-                    this.authnRequest.getResponseMode(),
-                    this.httpRequest.getParameters().get(REQUEST_LOGIN_PARAMETER) != null);
+            AuthenticationErrorResponse authnErrorResponse = authnErrorResponse(validationError);
+            return Pair.of((ModelAndView) null, HttpResponse.success(authnErrorResponse));
+        }
+
+        try {
+            authenticateClient();
+        } catch (ServerException e) {
+            Shared.logFailedRequest(logger, e);
+            AuthenticationErrorResponse authnErrorResponse = authnErrorResponse(e.getErrorObject());
             return Pair.of((ModelAndView) null, HttpResponse.success(authnErrorResponse));
         }
 
@@ -147,7 +146,15 @@ public class AuthenticationRequestProcessor {
         Boolean addSession    = loginResult.getRight();
 
         if (personUser == null) {
-            return Pair.of(generateLoginForm(), (HttpResponse) null);
+            AuthorizationServerInfo authzServerInfo;
+            try {
+                authzServerInfo = this.serverInfoRetriever.retrieveAuthorizationServerInfo();
+            } catch (ServerException e) {
+                Shared.logFailedRequest(logger, e);
+                return Pair.of((ModelAndView) null, HttpResponse.error(e));
+            }
+            ModelAndView loginForm = generateLoginForm(authzServerInfo.getServicePrincipalName());
+            return Pair.of(loginForm, (HttpResponse) null);
         }
 
         AuthenticationResponse authnResponse;
@@ -157,13 +164,7 @@ public class AuthenticationRequestProcessor {
                     processIdTokenResponse(personUser, sessionId);
         } catch (ServerException e) {
             Shared.logFailedRequest(logger, e);
-            authnResponse = new AuthenticationErrorResponse(
-                    this.authnRequest.getRedirectionURI(),
-                    e.getErrorObject(),
-                    this.authnRequest.getResponseType(),
-                    this.authnRequest.getState(),
-                    this.authnRequest.getResponseMode(),
-                    this.httpRequest.getParameters().get(REQUEST_LOGIN_PARAMETER) != null);
+            authnResponse = authnErrorResponse(e.getErrorObject());
         }
 
         Cookie sessionCookie = null;
@@ -191,25 +192,24 @@ public class AuthenticationRequestProcessor {
         }
         this.tenantInfo = this.tenantInfoRetriever.retrieveTenantInfo(tenantName);
         this.clientInfo = this.clientInfoRetriever.retrieveClientInfo(tenantName, this.authnRequest.getClientID());
-        this.serverInfo = this.serverInfoRetriever.retrieveServerInfo();
 
-        // authenticate client if they registered a cert
-        String certSubjectDn = (String) this.clientInfo.getOIDCMetadata().getCustomField("cert_subject_dn");
-        if (certSubjectDn != null) {
+        if (!this.clientInfo.getRedirectUris().contains(this.authnRequest.getRedirectionURI())) {
+            throw new ServerException(OAuth2Error.INVALID_REQUEST.setDescription("unregistered redirect_uri"));
+        }
+    }
+
+    private void authenticateClient() throws ServerException {
+        if (this.clientInfo.getCertSubjectDn() != null) {
             if (this.authnRequest.getClientAssertion() != null) {
                 this.solutionUserAuthenticator.authenticateByClientAssertion(
                         this.authnRequest.getClientAssertion(),
+                        REQUEST_LIFETIME_MS,
                         this.httpRequest.getRequestUrl(),
                         this.tenantInfo,
                         this.clientInfo);
             } else {
                 throw new ServerException(OAuth2Error.INVALID_CLIENT.setDescription("client_assertion parameter is required since client has registered a cert"));
             }
-        }
-
-        ErrorObject error = validateRedirectUri(this.authnRequest.getRedirectionURI());
-        if (error != null) {
-            throw new ServerException(error);
         }
     }
 
@@ -218,8 +218,17 @@ public class AuthenticationRequestProcessor {
         SessionID sessionId = null;
         Boolean addSession = Boolean.FALSE;
 
-        String loginString = this.httpRequest.getParameters().get(REQUEST_LOGIN_PARAMETER);
+        String sessionIdString = this.httpRequest.getCookieValue(Shared.getSessionCookieName(this.tenantInfo.getName()));
+        if (sessionIdString != null) {
+            sessionId = new SessionID(sessionIdString);
+            SessionManager.Entry entry = this.sessionManager.get(sessionId);
+            if (entry != null) {
+                personUser = entry.getPersonUser();
+                return Triple.of(personUser, sessionId, addSession);
+            }
+        }
 
+        String loginString = this.httpRequest.getParameters().get(REQUEST_LOGIN_PARAMETER);
         if (loginString != null) {
             if (loginString.startsWith(PASSWORD_LOGIN_METHOD)) {
                 personUser = processPasswordLogin(loginString);
@@ -230,15 +239,6 @@ public class AuthenticationRequestProcessor {
             }
             sessionId = new SessionID();
             addSession = Boolean.TRUE;
-        } else {
-            String sessionIdString = this.httpRequest.getCookieValue(Shared.getSessionCookieName(this.tenantInfo.getName()));
-            if (sessionIdString != null) {
-                sessionId = new SessionID(sessionIdString);
-                SessionEntry entry = this.sessionManager.get(sessionId);
-                if (entry != null) {
-                    personUser = entry.getPersonUser();
-                }
-            }
         }
 
         return Triple.of(personUser, sessionId, addSession);
@@ -317,36 +317,31 @@ public class AuthenticationRequestProcessor {
         return new AuthenticationSuccessResponse(
                 this.authnRequest.getRedirectionURI(),
                 authzCode,
-                null /* id_token */,
-                null /* access token */,
+                (IDToken) null,
+                (AccessToken) null,
                 this.authnRequest.getState(),
                 this.authnRequest.getResponseMode(),
-                this.httpRequest.getParameters().get(REQUEST_LOGIN_PARAMETER) != null);
+                httpRequest.getParameters().get(REQUEST_LOGIN_PARAMETER) != null /* isAjaxRequest */);
     }
 
     private AuthenticationSuccessResponse processIdTokenResponse(PersonUser personUser, SessionID sessionId) throws ServerException {
-        UserInformation userInfo = this.userInfoRetriever.retrieveUserInfo(personUser, this.authnRequest.getScope());
+        Set<ResourceServerInfo> resourceServerInfos = this.serverInfoRetriever.retrieveResourceServerInfos(this.tenantInfo.getName(), this.authnRequest.getScope());
+        UserInfo userInfo = this.userInfoRetriever.retrieveUserInfo(personUser, this.authnRequest.getScope(), resourceServerInfos);
 
-        IDToken idToken = TokenIssuer.issueIdToken(
+        TokenIssuer tokenIssuer = new TokenIssuer(
                 personUser,
                 (SolutionUser) null,
                 userInfo,
                 this.tenantInfo,
-                this.authnRequest.getClientID(),
                 this.authnRequest.getScope(),
                 this.authnRequest.getNonce(),
+                this.authnRequest.getClientID(),
                 sessionId);
 
+        IDToken idToken = tokenIssuer.issueIdToken();
         AccessToken accessToken = null;
         if (this.authnRequest.getResponseType().contains(ResponseType.Value.TOKEN)) {
-            accessToken = TokenIssuer.issueAccessToken(
-                    personUser,
-                    (SolutionUser) null,
-                    userInfo,
-                    this.tenantInfo,
-                    this.authnRequest.getClientID(),
-                    this.authnRequest.getScope(),
-                    this.authnRequest.getNonce());
+            accessToken = tokenIssuer.issueAccessToken();
         }
 
         return new AuthenticationSuccessResponse(
@@ -356,7 +351,7 @@ public class AuthenticationRequestProcessor {
                 accessToken,
                 this.authnRequest.getState(),
                 this.authnRequest.getResponseMode(),
-                this.httpRequest.getParameters().get(REQUEST_LOGIN_PARAMETER) != null);
+                httpRequest.getParameters().get(REQUEST_LOGIN_PARAMETER) != null /* isAjaxRequest */);
     }
 
     private ErrorObject validate() {
@@ -374,29 +369,21 @@ public class AuthenticationRequestProcessor {
         }
 
         if (error == null) {
-            GrantType grantType = responseType.contains(ResponseType.Value.CODE) ? GrantType.AUTHORIZATION_CODE : GrantType.IMPLICIT;
-            error = Shared.validateScope(this.authnRequest.getScope(), grantType);
+            GrantType grantType = responseType.contains(ResponseType.Value.CODE) ? AuthorizationCodeGrant.GRANT_TYPE : GrantType.IMPLICIT;
+            error = CommonValidator.validateScope(this.authnRequest.getScope(), grantType);
         }
 
         return error;
     }
 
-    private ErrorObject validateRedirectUri(URI redirectUri) {
-        ErrorObject error = null;
-
-        if (!CommonUtils.isValidUri(redirectUri)) {
-            error = OAuth2Error.INVALID_REQUEST.setDescription("invalid redirect_uri");
-        }
-
-        if (error == null) {
-            OIDCClientMetadata registeredClientMetadata = this.clientInfo.getOIDCMetadata();
-            Set<URI> redirectUris = registeredClientMetadata.getRedirectionURIs();
-            if (redirectUris == null || !redirectUris.contains(redirectUri)) {
-                error = OAuth2Error.INVALID_REQUEST.setDescription("unregistered redirect_uri");
-            }
-        }
-
-        return error;
+    private AuthenticationErrorResponse authnErrorResponse(ErrorObject error) {
+        return new AuthenticationErrorResponse(
+                this.authnRequest.getRedirectionURI(),
+                error,
+                this.authnRequest.getResponseType(),
+                this.authnRequest.getState(),
+                this.authnRequest.getResponseMode(),
+                httpRequest.getParameters().get(REQUEST_LOGIN_PARAMETER) != null /* isAjaxRequest */);
     }
 
     private Cookie sessionCookie(SessionID sessionId) {
@@ -417,11 +404,11 @@ public class AuthenticationRequestProcessor {
         return this.messageSource.getMessage(key, (Object[]) null, this.locale);
     }
 
-    private ModelAndView generateLoginForm() {
+    private ModelAndView generateLoginForm(String servicePrincipalName) {
         this.model.addAttribute("protocol",                     "openidconnect");
         this.model.addAttribute("responseMode",                 this.authnRequest.getResponseMode().toString());
 
-        this.model.addAttribute("spn",                          StringEscapeUtils.escapeEcmaScript(this.serverInfo.getServicePrincipalName()));
+        this.model.addAttribute("spn",                          StringEscapeUtils.escapeEcmaScript(servicePrincipalName));
         this.model.addAttribute("tenant_brandname",             StringEscapeUtils.escapeEcmaScript(this.tenantInfo.getBrandName()));
         this.model.addAttribute("tenant_logonbanner_title",     StringEscapeUtils.escapeEcmaScript(this.tenantInfo.getLogonBannerTitle()));
         this.model.addAttribute("tenant_logonbanner_content",   StringEscapeUtils.escapeEcmaScript(this.tenantInfo.getLogonBannerContent()));
@@ -429,6 +416,7 @@ public class AuthenticationRequestProcessor {
 
         this.model.addAttribute("username",                     localize("LoginForm.UserName"));
         this.model.addAttribute("password",                     localize("LoginForm.Password"));
+        this.model.addAttribute("passcode",                     localize("LoginForm.Passcode"));
         this.model.addAttribute("submit",                       localize("LoginForm.Submit"));
         this.model.addAttribute("error",                        localize("LoginForm.Error"));
         this.model.addAttribute("errorSSPI",                    localize("LoginForm.ErrorSSPI"));
@@ -438,13 +426,14 @@ public class AuthenticationRequestProcessor {
         this.model.addAttribute("downloadCIP",                  localize("LoginForm.DownloadCIP"));
         this.model.addAttribute("unsupportedBrowserWarning",    localize("LoginForm.UnsupportedBrowserWarning"));
         this.model.addAttribute("smartcard",                    localize("LoginForm.Smartcard"));
-        this.model.addAttribute("smartcard_reminder",           localize("LoginForm.SmartcardReminder"));
         this.model.addAttribute("iAgreeTo",                     localize("LoginForm.IAgreeTo"));
         this.model.addAttribute("logonBannerAlertMessage",      localize("LoginForm.LogonBannerAlertMessage"));
+        this.model.addAttribute("rsaam",                        localize("LoginForm.RsaSecurID"));
 
-        this.model.addAttribute("enable_password_auth",         true);
-        this.model.addAttribute("enable_windows_auth",          true);
+        this.model.addAttribute("enable_password_auth",         this.tenantInfo.getAuthnPolicy().getAllowPasswordAuthn());
+        this.model.addAttribute("enable_windows_auth",          this.tenantInfo.getAuthnPolicy().getAllowWindowsSessionAuthn());
         this.model.addAttribute("enable_tlsclient_auth",        false);
+        this.model.addAttribute("enable_rsaam_auth",            false);
 
         return new ModelAndView("unpentry");
     }
