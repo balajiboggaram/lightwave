@@ -94,7 +94,7 @@
                 <bundleSymbolicName>${bundle.symbolic.name}</bundleSymbolicName>
                 <bundleVersion>${bundle.version}</bundleVersion>
                 <inputPath>${outputDirectory}/${project.artifactId}.jar</inputPath>
-                <outputPath>${build.dist}/${project.artifactId}.jar</outputPath>
+                <outputPath>${outputDirectory}/${project.artifactId}.jar</outputPath>
                 <manifestTemplatePath>${bundle.manifestTemplatePath}</manifestTemplatePath>
               </configuration>
             </execution>
